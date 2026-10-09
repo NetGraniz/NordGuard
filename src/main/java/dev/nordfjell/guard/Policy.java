@@ -7,9 +7,14 @@ import org.bukkit.configuration.ConfigurationSection;
 
 public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin, double verticalMargin,
               int burstTicks, int joinGrace, int transitionGrace, long maxGapNanos,
-              long alertNanos, boolean console) {
+              long alertNanos, boolean console, ActionLimits actions) {
+    public Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin, double verticalMargin,
+                  int burstTicks, int joinGrace, int transitionGrace, long maxGapNanos, long alertNanos, boolean console) {
+        this(modes,buffer,horizontalMargin,verticalMargin,burstTicks,joinGrace,transitionGrace,maxGapNanos,alertNanos,console,ActionLimits.defaults());
+    }
     public enum Mode { OFF, OBSERVE, CORRECT }
     public Policy {
+        java.util.Objects.requireNonNull(actions);
         modes = Map.copyOf(modes);
         if (buffer < 2 || buffer > 100 || !range(horizontalMargin, 0, 1)
                 || !range(verticalMargin, 0.02, 1) || burstTicks < 1 || burstTicks > 20
@@ -33,6 +38,6 @@ public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin
                 config.getInt("movement.transition-grace-ticks", 20),
                 Math.multiplyExact(config.getLong("movement.max-sample-gap-ms", 250), 1_000_000L),
                 Math.multiplyExact(config.getLong("alerts.cooldown-seconds", 10), 1_000_000_000L),
-                config.getBoolean("alerts.console", true));
+                config.getBoolean("alerts.console", true), ActionLimits.read(config));
     }
 }

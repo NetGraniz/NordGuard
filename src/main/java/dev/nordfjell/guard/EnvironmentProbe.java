@@ -9,6 +9,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.util.BoundingBox;
 
 public final class EnvironmentProbe {
+    private static final java.util.Set<Material> SPECIAL=java.util.Arrays.stream(Material.values()).filter(material->{
+        String name=material.name();
+        return name.contains("ICE") || name.contains("PISTON") || name.contains("SLIME") || name.contains("HONEY")
+                || name.endsWith("BED") || material==Material.HAY_BLOCK || material==Material.POWDER_SNOW
+                || material==Material.SWEET_BERRY_BUSH || material==Material.SCAFFOLDING
+                || material==Material.SOUL_SAND || material==Material.BUBBLE_COLUMN;
+    }).collect(java.util.stream.Collectors.toUnmodifiableSet());
     public record Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
                               boolean liquid, boolean liquidSurface, boolean web) {
         Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear) {
@@ -38,7 +45,7 @@ public final class EnvironmentProbe {
                         return new Environment(false, false, false, true, false);
                     var block = world.getBlockAt(x, y, z);
                     Material material = block.getType();
-                    String name = material.name();
+                    if (material.isAir()) continue;
                     if (material == Material.COBWEB)
                         web |= inside.overlaps(new BoundingBox(x, y, z, x + 1, y + 1, z + 1));
                     if (block.isLiquid()) {
@@ -49,12 +56,7 @@ public final class EnvironmentProbe {
                                 && body.getMaxX() > x && body.getMinX() < x + 1
                                 && body.getMaxZ() > z && body.getMinZ() < z + 1;
                     }
-                    special |= name.contains("ICE") || name.contains("PISTON") || name.contains("SLIME")
-                            || name.contains("HONEY") || name.endsWith("BED") || material == Material.HAY_BLOCK
-                            || material == Material.POWDER_SNOW
-                            || material == Material.SWEET_BERRY_BUSH || material == Material.SCAFFOLDING
-                            || material == Material.SOUL_SAND || material == Material.BUBBLE_COLUMN;
-                    if (material.isAir()) continue;
+                    special |= SPECIAL.contains(material);
                     special |= block.getBlockData() instanceof Waterlogged water && water.isWaterlogged();
                     for (var local : block.getCollisionShape().getBoundingBoxes()) {
                         var shape = local.clone().shift(x, y, z);

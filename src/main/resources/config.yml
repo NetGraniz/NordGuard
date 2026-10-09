@@ -10,6 +10,25 @@ checks:
   noweb: OBSERVE
   noslow: OBSERVE
   nofall: OBSERVE
+  noclip: OBSERVE
+  reach: OBSERVE
+  wallhit: OBSERVE
+  attackrate: OBSERVE
+  blockreach: OBSERVE
+  fastbreak: OBSERVE
+  breakrate: OBSERVE
+  placerate: OBSERVE
+actions:
+  reach-margin: 0.35
+  history-ms: 200
+  max-blocks-per-scan: 128
+  spatial-checks-per-tick: 2
+  # Shared by all players/regions, including NoClip. Exhaustion defers the scan.
+  spatial-blocks-per-second: 20000
+  # One second of burst credit. These are server limits, not proof of automation.
+  attacks-per-second: 40
+  breaks-per-second: 25
+  places-per-second: 20
 # Conservative starting values, not proof of coverage or capacity.
 movement:
   violation-buffer: 6

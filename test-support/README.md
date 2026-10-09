@@ -17,3 +17,11 @@ Version 0.2.0 adds moderate micro-hop packets, actual client-physics sprint jump
 Shield cases start item use through the server API and verify it remains active. The ordinary slow movement case must not flag; neither may a custom USE_EFFECTS component granting full movement speed. A separate ordinary shield with excessive movement must trigger NOSLOW and a NordGuard correction. This tests server-observed item state, not every Wurst use/release packet pattern.
 
 These checks do not establish complete cheat coverage, absence of false positives, or capacity at 600 real players.
+
+Version 0.3.0 adds synthetic attack, break and placement events on the fixture's owner thread. They test distance gates, observed mining starts, instant-break overrides (including repeated starts), action budgets, observation/off modes, explicit bypass and existing cancellations. These event tests are not cheat packet replays. The separate real Mineflayer attack/mining case checks that an ordinary attack deals damage and normal stone mining completes with FastBreak correction enabled.
+
+The NoClip case injects a previous sampled position across a synthetic stone wall and requires both a report and return. It tests the check/setback integration, not a working client collision exploit. Geometry tests also cover oversized scans, a small unloaded area with no chunk loading, dynamic trapdoors, and the WallHit settling period. Delays use monotonic deadlines: catch-up scheduler ticks are not assumed to last 50 ms each.
+
+A bounded microbenchmark warms up for 100 entity ticks, then records 200 ticks with four environment probes and four Reach attack events each. It prints the median, p95 and maximum of 800 measurements per operation. World geometry is synthetic and mostly stationary; this is not a distributed 600-player test or a full WallHit/NoClip cost measurement. The production JAR contains no benchmark code.
+
+For development only, `NORD_GUARD_ACTIONS_ONLY=1` skips the older movement scenarios. Do not count that run as the full regression suite. Runtime results are written to the isolated directory, never the repository.

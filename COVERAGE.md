@@ -1,10 +1,10 @@
 # Wurst coverage map
 
-NordGuard 0.2.0, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked.
+NordGuard 0.3.0, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked.
 
 The feature catalog was checked against the [official Wurst source tree at f98551a](https://github.com/Wurst-Imperium/Wurst7/tree/f98551a3bfab97a1e70c340f91b334976c7fc4c2/src/main/java/net/wurstclient/hacks). The movement implementations linked below were inspected to design synthetic cases. Other rows classify scope; they are not individual source audits or exploit reproductions. No Wurst code is bundled or copied.
 
-**Implemented** means a server-side check exists for the specified behavior. It does not mean every setting, terrain combination or bypass is covered. **Partial** means another check can catch an excessive displacement but does not validate that feature itself. All release defaults are OBSERVE. Corrections need a previously verified return position.
+**Implemented** means a server-side check exists for the specified behavior. It does not mean every setting, terrain combination or bypass is covered. **Partial** means checks cover only some excessive actions, not the whole feature. All release defaults are OBSERVE. Movement setbacks need a previously verified return position; attack/block cancellations do not.
 
 ## Implemented movement behavior
 
@@ -30,8 +30,8 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 | --- | --- | --- |
 | Timer | Partial | Excessive sampled movement can trigger SPEED; packet rates, ordering and stationary timer use are not validated. |
 | Blink | Partial | Large sampled displacements can accumulate speed evidence; no latency-compensated packet timeline. |
-| TpAura | Partial | Movement can trigger checks; attacks and target reach are not validated. |
-| NoClip | Not implemented | Needs collision-path validation, not just checking the destination box. |
+| TpAura | Partial | Movement, Reach and WallHit check excessive actions. No complete packet timeline. |
+| NoClip | Partial | Near-horizontal sampled paths through full cubes, clear endpoints, normal-height bodies and 0.8–4 block displacement. Partial shapes and smaller/vertical steps are not covered. Shared scan budget can defer. |
 | AntiKnockback | Not implemented | Server impulses are allowed, but acceptance of knockback is not required. |
 | AntiEntityPush | Not implemented | Entity pushes are not reconstructed. |
 | AntiWaterPush | Not implemented | Flow and current forces are not modeled. |
@@ -49,16 +49,16 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 | AutoWalk | Not a standalone violation | Ordinary automatic walking has no unique movement signature. |
 | Parkour | Not a standalone violation | Legal jumps are allowed, whether timed manually or automatically. |
 | SafeWalk | Not implemented | Legal edge movement is not sufficient evidence of a cheat. |
-| Killaura | Not implemented | Requires a combat module and reproducible attack evidence. |
-| MultiAura | Not implemented | No multi-target attack validation. |
-| Reach | Not implemented | No latency-aware entity/block interaction distance check. |
+| Killaura | Partial | Reach, approximate WallHit and AttackRate can reject excessive actions. Legal-looking aim and attack automation are not detected. |
+| MultiAura | Partial | Shared per-attacker action budget, distance and sampled obstruction. No multi-target classifier. |
+| Reach | Implemented, bounded | Server/item interaction range plus margin; fresh player snapshots, not full lag reconstruction. Block interaction range is checked separately. |
 | Criticals | Not implemented | No critical-hit validation. |
 | CrystalAura | Not implemented | No crystal placement/attack module. |
-| FastBreak | Not implemented | No block-breaking timeline. |
-| Nuker | Not implemented | No block-breaking rate or line-of-sight module. |
-| SpeedNuker | Not implemented | No block-breaking timeline. |
+| FastBreak | Partial | Observed mining starts, native speed/early-stop threshold, permissive tool changes and lag compensation. Missing starts defer; no full dig-packet model. |
+| Nuker | Partial | BlockReach, FastBreak and configurable BreakRate reject excessive actions, not all automated legal mining. No block line-of-sight check. |
+| SpeedNuker | Partial | Same block reach, observed mining and rate limits. |
 | Excavator | Not implemented | No automated mining classifier. |
-| FastPlace | Not implemented | No placement-rate check. |
+| FastPlace | Partial | Configurable PlaceRate with one second of burst credit, plus BlockReach. No support/rotation classifier. |
 | AirPlace | Not implemented | No placement-support validation. |
 | ScaffoldWalk | Not implemented | No placement/rotation correlation. |
 | AutoTotem | Not implemented | No inventory automation module. |
@@ -78,4 +78,4 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 
 See [TESTING.md](TESTING.md) for the exact tests executed. Constructed packets are not a running Wurst client. A passed synthetic case is not proof that every setting of the corresponding feature is blocked.
 
-Combat and inventory work should remain separate from these movement histories. Adding feature names or lowering every movement threshold would not implement those protections and would increase false positives.
+Combat and block histories are separate from the movement model. WallHit and NoClip share a hard spatial budget; saturated budgets deliberately skip checks. Inventory automation, complete combat prediction and vehicle/elytra physics remain outside this build. Adding feature names or lowering every movement threshold would not implement those protections and would increase false positives.

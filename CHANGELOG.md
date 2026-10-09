@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+- Add Reach and bounded WallHit checks before attack damage, respecting native interaction attributes and weapon ATTACK_RANGE components.
+- Publish immutable player-history pairs on the owner scheduler; defer stale or unknown foreign-region targets.
+- Add configurable attack, break and placement token budgets, plus BlockReach and observed-start FastBreak.
+- Match mining eligibility to the native 0.7 early-stop threshold, wall-clock lag compensation, repeated starts and plugin instant-break overrides. Tool changes receive permissive progress.
+- Add a narrow NoClip path check for near-horizontal crossings of full cubes, without advancing the return anchor after observed phasing.
+- Share a hard spatial-cell budget across all regions. Saturation defers scans instead of queuing work. Newly blocked wall geometry gets 200 ms to settle.
+- Bound alert emission globally and expose action timings and spatial-defer counters in status.
+- Skip air earlier in environment probes and precompute the special-material set. No world-geometry cache or chunk loading.
+- Extend isolated tests with action-event gates, real ordinary client attack/mining, NoClip history fault injection, scan safety and a bounded warm microbenchmark. Keep all new modes OBSERVE by default.
+
+## 0.2.0
+
+- Add WaterWalk, Climb, NoWeb and server-observed item-use NoSlow checks.
+- Treat horizontal margin as burst credit rather than a per-tick allowance; grant jump momentum only for plausible jumps.
+- Detect repeated Spider ascent earlier while keeping ordinary wall jumps legal.
+- Expand pure and isolated runtime tests for movement media, item components and micro-hop speed.
+
 ## 0.1.1
 
 - Preserve the last clean supported return position during temporary evidence resets.

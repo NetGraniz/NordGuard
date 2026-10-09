@@ -1,9 +1,9 @@
 name: NordGuard
-version: 0.2.0
+version: 0.3.0
 main: dev.nordfjell.guard.NordGuard
 api-version: '26.2'
 folia-supported: true
-description: Bounded movement and NoFall checks for Paper and Folia.
+description: Bounded movement, combat and block checks for Paper and Folia.
 commands:
   nordguard:
     description: NordGuard administration

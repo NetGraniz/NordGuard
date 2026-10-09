@@ -78,6 +78,7 @@ async function main() {
   await marker('guardprobe probe GuardFixture',/GUARD_GEOMETRY_PASS/); pass('actual block-shape support and body clearance');
   await marker('guardprobe permissions GuardFixture',/GUARD_PERMISSIONS_PASS/); pass('ordinary account has no admin, alerts or bypass');
   await marker('nordguard status',/sessions=1/); pass('player scheduler active');
+  if(!process.env.NORD_GUARD_ACTIONS_ONLY) {
   await marker('guardprobe fall GuardFixture',/GUARD_NATIVE_PASS fall/); pass('native fall damage and FALL event');
   await marker('guardprobe cancel GuardFixture',/GUARD_NATIVE_PASS cancel/); pass('cancelled FALL event preserves health');
   await marker('guardprobe partial GuardFixture',/GUARD_NATIVE_PASS partial/); pass('native partial recovery applies only unpaid base damage');
@@ -203,7 +204,7 @@ async function main() {
   await sleep(4000);
   const miniOrigin=bot.entity.position.clone();
   const miniBaseline=await marker('nordguard status',/SPEED: (\d+)/);
-  for(let i=1;i<=65;i++) {
+  for(let i=1;i<=44;i++) {
     bot.entity.position.set(miniOrigin.x+i*.5,miniOrigin.y+(i%3===1?.1:0),miniOrigin.z);
     bot.entity.onGround=i%3!==1;
     const p=bot.entity.position;
@@ -219,12 +220,15 @@ async function main() {
   const legitStart=await marker('nordguard status',/SPEED: (\d+)/);
   const legitFlight=await marker('nordguard status',/FLIGHT: (\d+)/);
   bot.physicsEnabled=true;
+  bot.entity.velocity.set(0,0,0);bot.entity.onGround=true;
+  const legitOrigin=bot.entity.position.clone();
   await bot.look(-Math.PI/2,0,true);
   bot.setControlState('forward',true); bot.setControlState('sprint',true); bot.setControlState('jump',true);
-  await sleep(3000);
+  await sleep(1800);
   bot.clearControlStates();
   await sleep(600);
   bot.physicsEnabled=false;
+  assert(bot.entity.position.x-legitOrigin.x<23,'Legitimate jump case must remain on prepared terrain');
   const legitEnd=await marker('nordguard status',/SPEED: (\d+)/);
   const legitFlightEnd=await marker('nordguard status',/FLIGHT: (\d+)/);
   assert.equal(+legitEnd[1],+legitStart[1],'Ordinary client-physics sprint jumps must not flag speed');
@@ -316,6 +320,32 @@ async function main() {
   await completedCorrection(+useBaseline[1],'item-use');
   await marker('nordguard status',/NOSLOW: [1-9]\d*/);
   pass('ignored shield slowdown detected and corrected');
+  }
+  bot.physicsEnabled=false;
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await sleep(4000);
+  const actionOffset=output.length;
+  await marker('guardprobe actions GuardFixture',/GUARD_ACTIONS_DONE/);
+  for(const name of output.slice(actionOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('event gate: '+name[1]);
+  const phaseOffset=output.length;
+  await marker('guardprobe phase GuardFixture',/GUARD_PHASE_DONE/);
+  for(const name of output.slice(phaseOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('fault injection: '+name[1]);
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  const clientOffset=output.length;
+  const fixture=await marker('guardprobe clientfixture GuardFixture',/GUARD_CLIENT_FIXTURE (\d+) (-?\d+) (-?\d+) (-?\d+)/);
+  await until(()=>bot.entities[+fixture[1]],'client target spawn');
+  bot.attack(bot.entities[+fixture[1]]);
+  await sleep(500);
+  const Vec3=bot.entity.position.constructor;
+  const miningPosition=new Vec3(+fixture[2],+fixture[3],+fixture[4]);
+  await until(()=>bot.blockAt(miningPosition)?.name==='stone','client stone update');
+  await bot.dig(bot.blockAt(miningPosition));
+  await marker('guardprobe clientresult GuardFixture',/GUARD_CLIENT_DONE/);
+  for(const name of output.slice(clientOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('real client: '+name[1]);
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  const perf=await marker('guardprobe perf GuardFixture',/GUARD_PERF probe_ns median=(\d+) p95=(\d+) max=(\d+) event_ns median=(\d+) p95=(\d+) max=(\d+) samples=800/);
+  console.log(perf[0]);pass('bounded warm probe and Reach-event microbenchmark (not a capacity test)');
+  await marker('nordguard status',/Action events=/);
   assert(!/GUARD_PROBE_FAIL|Cannot read world asynchronously|Deferred player check after internal error/.test(output));
   pass('no region ownership errors');
 }

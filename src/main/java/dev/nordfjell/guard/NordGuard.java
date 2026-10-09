@@ -40,6 +40,29 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private volatile Policy policy;
     private NativeFall nativeFall;
     private NativeTeleport nativeTeleport;
+    private ActionGuard actions;
+    private final SpatialBudget spatialBudget=new SpatialBudget();
+    private final SpatialBudget alertBudget=new SpatialBudget();
+    private final LongAdder spatialDeferred=new LongAdder(), spatialCells=new LongAdder();
+    private final LongAdder actionCount=new LongAdder(), actionNanos=new LongAdder();
+    private final java.util.concurrent.atomic.AtomicLong slowestAction=new java.util.concurrent.atomic.AtomicLong();
+    void actionTiming(long nanos) { actionCount.increment();actionNanos.add(nanos);slowestAction.accumulateAndGet(nanos,Math::max); }
+    Policy policy() { return policy; }
+    int nativeSequence(Player player) { return nativeTeleport.sequence(player); }
+    boolean actionViolation(Player player,Check check,String detail) {
+        Session session=sessions.get(player.getUniqueId());
+        if(session==null || policy.modes().get(check)==Policy.Mode.OFF) return false;
+        report(session,check,detail);return policy.modes().get(check)==Policy.Mode.CORRECT;
+    }
+    void actionCancelled() { corrections.increment(); }
+    SolidProbe.Scan scan(org.bukkit.World world,Geometry.Box bounds,ActionLimits limits) {
+        var result=SolidProbe.scan(world,bounds,limits.maxBlocks(),count->{
+            if(!spatialBudget.acquire(System.nanoTime(),count,limits.spatialBlocksPerSecond())) return false;
+            spatialCells.add(count);return true;
+        });
+        if(!result.known()) spatialDeferred.increment();
+        return result;
+    }
 
     @Override public void onEnable() {
         saveDefaultConfig();
@@ -55,12 +78,15 @@ public final class NordGuard extends JavaPlugin implements Listener {
             return;
         }
         Bukkit.getPluginManager().registerEvents(this, this);
+        actions=new ActionGuard(this);
+        Bukkit.getPluginManager().registerEvents(actions,this);
         for (Player player : Bukkit.getOnlinePlayers()) player.getScheduler().run(this, task -> attach(player), null);
         getLogger().info("NordGuard " + getDescription().getVersion() + " enabled; modes=" + policy.modes() + "; no bans or external services");
     }
     @Override public void onDisable() {
         sessions.values().forEach(s -> { if (s.task != null) s.task.cancel(); });
         sessions.clear(); subscribers.clear();
+        if(actions!=null) actions.clear();
     }
     private Policy readPolicy() throws Exception {
         var yaml = new YamlConfiguration();
@@ -72,7 +98,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Session previous = sessions.putIfAbsent(player.getUniqueId(), session);
         if (previous != null) return;
         session.task = player.getScheduler().runAtFixedRate(this, ignored -> session.tick(),
-                () -> sessions.remove(player.getUniqueId(), session), 1, 1);
+                () -> {sessions.remove(player.getUniqueId(),session);if(actions!=null) actions.remove(player);}, 1, 1);
         if (session.task == null) sessions.remove(player.getUniqueId(), session);
     }
     @EventHandler(priority = EventPriority.MONITOR) public void join(PlayerJoinEvent event) { attach(event.getPlayer()); }
@@ -80,6 +106,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Session session = sessions.remove(event.getPlayer().getUniqueId());
         if (session != null && session.task != null) session.task.cancel();
         subscribers.remove(event.getPlayer().getUniqueId());
+        if(actions!=null) actions.remove(event.getPlayer());
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void teleport(PlayerTeleportEvent event) {
@@ -127,6 +154,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
     }
     private void grace(Player player) {
+        if(actions!=null) actions.invalidate(player);
         Session session = sessions.get(player.getUniqueId());
         if (session != null) {
             session.originRevision++;
@@ -138,9 +166,12 @@ public final class NordGuard extends JavaPlugin implements Listener {
 
     private void report(Session session, Check check, String detail) {
         violations[check.ordinal()].increment();
+        if(!policy.console() && subscribers.isEmpty()) return;
         long now = System.nanoTime();
         if (now - session.lastAlert[check.ordinal()] < policy.alertNanos()) return;
         session.lastAlert[check.ordinal()] = now;
+        // A wave of violations must not turn into an unbounded logging/broadcast workload.
+        if(!alertBudget.acquire(now,1,20)) return;
         String message = "[NordGuard] " + session.player.getName() + " " + check + " " + detail;
         if (policy.console()) getLogger().info(message);
         for (UUID id : subscribers) {
@@ -161,6 +192,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 sender.sendMessage("NordGuard " + getDescription().getVersion() + " | sessions=" + sessions.size() + " | modes=" + policy.modes());
                 sender.sendMessage("Samples=" + count + ", deferred=" + skipped.sum() + ", corrections=" + corrections.sum()
                         + ", mean sample us=" + (count == 0 ? 0 : sampleNanos.sum() / count / 1000));
+                sender.sendMessage("Spatial cell budget used="+spatialCells.sum()+", spatial scans deferred="+spatialDeferred.sum());
+                long events=actionCount.sum();
+                sender.sendMessage("Action events="+events+", mean action us="+(events==0?0:actionNanos.sum()/events/1000)
+                        +", slowest action us="+slowestAction.get()/1000);
                 for (Check check : Check.values()) sender.sendMessage(check + ": " + violations[check.ordinal()].sum());
             }
             case "reload" -> {
@@ -230,6 +265,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             int sequence = nativeTeleport.sequence(player);
             if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
             teleportSequence = sequence; seenTeleportSequence = true;
+            actions.tick(player,sequence,now);
             Policy current = policy;
             if (seenPolicy != current) { seenPolicy = current; suspend(current.joinGrace()); }
             long gap = now - lastNanos; lastNanos = now;
@@ -293,6 +329,20 @@ public final class NordGuard extends JavaPlugin implements Listener {
             var result = model.accept(new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
                     environment.wall(), false, speed, jump, attribute(player, Attribute.STEP_HEIGHT, .6),
                     attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier), current);
+            boolean phased=false;
+            if(current.modes().get(Check.NOCLIP)!=Policy.Mode.OFF && last!=null && environment.clear() && player.getBoundingBox().getHeight()>=1.5
+                    && Math.abs(at.getY()-last.getY())<.05 && at.distanceSquared(last)>.64 && at.distanceSquared(last)<16) {
+                var previous=EnvironmentProbe.inspect(player,last);
+                if(previous.known() && previous.clear() && !previous.special()) {
+                    var a=new Geometry.Point(last.getX(),last.getY()+.9,last.getZ());
+                    var b=new Geometry.Point(at.getX(),at.getY()+.9,at.getZ());
+                    var bounds=new Geometry.Box(Math.min(a.x(),b.x()),Math.min(a.y(),b.y()),Math.min(a.z(),b.z()),
+                            Math.max(a.x(),b.x()),Math.max(a.y(),b.y()),Math.max(a.z(),b.z()));
+                    var scan=scan(at.getWorld(),bounds,current.actions());
+                    phased=scan.known() && scan.blocked(a,b);
+                    if(phased) result.flags().add(Check.NOCLIP);
+                }
+            }
             if (!environment.ground() && !airborne) {
                 fallBaseline = fallEvents; rawBaseline = fallRawDamage; overrideBaseline = fallOverrides;
             }
@@ -336,7 +386,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                     return;
                 }
             }
-            if (environment.ground() && environment.clear() && result.clean()) safe = at.clone();
+            if (environment.ground() && environment.clear() && result.clean() && !phased) safe = at.clone();
             last = at;
         }
     }

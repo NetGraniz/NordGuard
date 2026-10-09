@@ -1,6 +1,6 @@
 # NordGuard
 
-Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.2.0 is an experimental, observation-first build, not a complete anti-cheat.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.3.0 is an experimental, observation-first build. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed.
 
 ## Checks
 
@@ -15,6 +15,13 @@ Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.2.0 
 | NoWeb | Excess movement while the player's body intersects a cobweb; Weaving and plugin-cancelled cobweb interactions defer checks. |
 | NoSlow | Sustained excessive grounded speed during server-observed item use; reads the item's USE_EFFECTS speed multiplier. |
 | NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. |
+| NoClip | Near-horizontal sampled paths crossing a full solid cube, with clear endpoints. Only bodies at least 1.5 blocks high, displacement above 0.8 and below 4 blocks, and vertical change below 0.05 are checked. |
+| Reach | Eye-to-target-box distance beyond the server range, including the actual ATTACK_RANGE weapon component. Recent player snapshots provide a small lag allowance. |
+| WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching blocked geometry must persist for at least 200 ms. An approximation, not complete visibility reconstruction. |
+| AttackRate | A configurable action budget; 40 attacks/second and one second of burst credit by default. Fast legal clicking is not classified as Kill Aura. |
+| BlockReach | Breaking or placing beyond the server block-interaction attribute plus a margin. |
+| FastBreak | Premature destruction with an observed mining start. Uses native break speed, the 26.2 early-stop threshold and wall-clock lag compensation. |
+| BreakRate / PlaceRate | Configurable action budgets; 25 breaks/second and 20 placements/second with one second of burst credit. Server limits, not automation classifiers. |
 
 NoFall prevents avoidance of fall damage; it does not disable normal fall damage. It reconstructs a fall from sampled height and actual block support, not the client's on-ground flag. It accounts for base FALL damage already observed, so partial early damage does not exempt an entire fall. Cancellation or modification of base damage by another plugin suppresses recovery for that fall. NordGuard does not override that decision or set health directly.
 
@@ -26,7 +33,7 @@ The native teleport bridge reads the server-issued teleport sequence on the play
 
 Requires Java 25. Put one release JAR in `plugins` while the server is stopped. No client mod, database, packet library or external service is required. Configuration: `plugins/NordGuard/config.yml`.
 
-All nine checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
+All 17 checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
 
 ```yaml
 checks:
@@ -39,15 +46,47 @@ checks:
   noweb: OBSERVE
   noslow: OBSERVE
   nofall: OBSERVE
+  noclip: OBSERVE
+  reach: OBSERVE
+  wallhit: OBSERVE
+  attackrate: OBSERVE
+  blockreach: OBSERVE
+  fastbreak: OBSERVE
+  breakrate: OBSERVE
+  placerate: OBSERVE
 ```
 
-Each mode accepts `OFF`, `OBSERVE` or `CORRECT`. Observation records evidence without changing position or health. Correction permits movement setbacks or native NoFall damage. A setback needs a previous clean supported position that remains loaded, region-owned and clear; otherwise the plugin reports without forcing a teleport.
+Each mode accepts `OFF`, `OBSERVE` or `CORRECT`. Observation records evidence without changing position, health or event cancellation. Correction permits movement setbacks, native NoFall damage or cancellation of the offending attack/break/place event. A setback needs a previous clean supported position that remains loaded, region-owned and clear; otherwise the plugin reports without forcing a teleport. Existing cancellations from other plugins are respected.
+
+### Action limits
+
+```yaml
+actions:
+  reach-margin: 0.35
+  history-ms: 200
+  max-blocks-per-scan: 128
+  spatial-checks-per-tick: 2
+  spatial-blocks-per-second: 20000
+  attacks-per-second: 40
+  breaks-per-second: 25
+  places-per-second: 20
+```
+
+Reach reads the native interaction attribute when the main-hand item has no ATTACK_RANGE component; otherwise the component's maximum reach and hitbox margin apply. Creative and Spectator are exempt. Authorization for flight does not exempt survival combat or block actions. `nordguard.bypass` does.
+
+Player snapshots publish at most ten times per second as one immutable pair. The pair holds the latest and preceding position, not a complete movement timeline. `history-ms` caps the permitted age of the preceding snapshot; values above 200 do not create additional history. The effective allowance also depends on reported ping. `0` disables preceding-snapshot allowance. Live targets owned by the current region use their current box; foreign-region players use fresh immutable snapshots. Missing, stale or different-world snapshots defer spatial checks. Teleports clear history; native teleport sequences also invalidate owned-target history between samples.
+
+WallHit and NoClip share a server-wide spatial cell budget, split into 50 ms windows. The default allows at most 1,000 requested cells per window, across all players and regions. Each scan also has its own cell limit; WallHit has a per-attacker scan limit. Budget exhaustion skips the scan. This deliberately sacrifices coverage under saturation instead of adding unbounded tick work. First-come allocation is not a fairness guarantee. Cheap distance and action-rate checks continue.
+
+FastBreak tracks one active block per player. Repeated starts replace the timeline, matching the native game mode. The historical maximum break speed makes tool or effect changes permissive. Eligibility includes elapsed monotonic time because 26.2 mining uses lag compensation. A two-tick allowance and 0.05 progress margin accommodate event order; the native early-stop threshold is 0.7. Plugin-authorized instant breaks are allowed. A break without a known start is not proof of FastBreak and is not rejected by that check. Rate limits can still apply to instant or plugin-triggered actions.
+
+Rate budgets refill with monotonic elapsed time, not packet count or server TPS. One second of burst credit means a short burst can exceed the per-second setting. Pick limits compatible with your own instant-mining, building and combat mechanics before enabling CORRECT.
 
 `movement.violation-buffer` controls accumulated movement evidence. Spider uses at most three evidence samples; WaterWalk uses at least ten to allow brief surface crossings. `horizontal-margin` is added once to the speed burst budget, not to every tick's speed allowance. `vertical-margin` remains a vertical tolerance; Spider scales it when comparing gravity deceleration. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are starting points, not calibrated guarantees.
 
 Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
 
-Existing schema-version 1 configurations remain readable. Missing `waterwalk`, `climb`, `noweb` and `noslow` modes default to OBSERVE; the plugin does not silently enable corrections or overwrite your settings. Add those four entries explicitly when selecting their modes. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
+Existing schema-version 1 configurations remain readable. Missing modes default to OBSERVE and missing action limits use the defaults above; the plugin does not silently enable corrections or overwrite your settings. Add new entries explicitly when selecting their modes. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
 
 NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Quick use/release loops and item-use packet ordering are not covered. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
 
@@ -61,7 +100,7 @@ Temporary history resets keep the last clean supported return position. The firs
 
 | Command / permission | Purpose | Default |
 | --- | --- | --- |
-| `/nordguard status` | Modes, sessions, violation samples, corrections and mean sample time. Requires `nordguard.admin`. | Console / OP |
+| `/nordguard status` | Modes, sessions, evidence, corrections, sample/action timings and spatial budget counters. Requires `nordguard.admin`. | Console / OP |
 | `/nordguard reload` | Validate and reload configuration. Requires `nordguard.admin`. | Console / OP |
 | `/nordguard alerts` | Toggle personal alerts. Requires `nordguard.admin` and `nordguard.alerts`. | Explicit grant |
 | `nordguard.admin` | Administration commands. | OP |
@@ -86,11 +125,13 @@ nordguard.alerts: true
 
 ## Runtime design
 
-One entity-scheduled task samples each online player at most once per server tick. Ordinary stationary supported players use a reduced probe frequency. Movement checks share one bounded history.
+One entity-scheduled task samples each online player at most once per server tick. Ordinary stationary supported players use a reduced probe frequency. Movement checks share one bounded history. Action checks reuse that task for snapshots and active mining; there is no additional per-player timer or player-pair search. Expensive scans run only for candidate actions or candidate wall crossings.
 
 The environment probe inspects at most 36 nearby block positions and checks loaded chunks and region ownership before access. It never requests chunk loading. Cross-region setbacks use `teleportAsync` with entity-scheduled completion. Live-world reads do not run on background workers.
 
-Output is throttled per player and check. Violation counters count samples, not confirmed cheaters. Mean sampling time includes idle and deferred samples, not full-server cost or latency percentiles. No telemetry, update checks, external requests or per-move disk writes are included. Console messages may contain player names and observed fall distances.
+Alerts also share a global limit of one emitted message per 50 ms window, in addition to the per-player/check cooldown. Suppressed messages do not suppress evidence counters or corrections. With console alerts disabled and no subscribers, reporting avoids message construction and delivery work.
+
+Output is throttled per player and check. Violation counters count samples, not confirmed cheaters. Mean sampling time includes idle/deferred samples, snapshot publication and mining updates. Mean/slowest action time covers attack, break and place handlers, not the entire server pipeline or mining-start handler. Corrections count completed setbacks, native fall recoveries and cancelled actions. Spatial cells count reserved scan cells, not necessarily every cell read before a defer. These counters do not establish a full-server latency percentile or capacity guarantee. No telemetry, update checks, external requests or per-move disk writes are included. Console messages may contain player names and observed fall distances.
 
 ## Coverage limits
 
@@ -99,7 +140,10 @@ Output is throttled per player and check. Violation counters count samples, not 
 - Swimming/submerged movement, flowing liquids, waterlogged blocks, ice, slime, honey, beds, hay, powder snow, berry bushes, scaffolding, soul sand and nearby pistons conservatively defer checks. These exemptions leave gaps. Source liquid surfaces, climbing and cobwebs now have separate checks instead of a blanket exemption.
 - NoFall covers observed falls on ordinary supported terrain. Mid-tick rescue mechanics, damage cooldowns, plugin modifications and incomplete event history affect evidence. Correction remains experimental.
 - HighJump/Step targets repeated violations, not every isolated jump. Fine speed advantages, collision phasing and arbitrary client timing are not fully covered.
-- Combat, Reach, Kill Aura, FastBreak, Nuker, authentication and ore obfuscation are not included.
+- Combat checks cover excessive range, sampled obstruction and action budgets, not every Kill Aura mode, aim pattern or critical-hit exploit. Legal-looking automation can pass.
+- NoClip covers only a narrow full-cube path case. Small steps through walls, partial shapes, crawl poses, large teleports and intermediate movement packets are not reconstructed.
+- WallHit ignores partial shapes and defers around doors, trapdoors, pistons, slime or honey. Ten target points can miss a small exposed area; changed terrain and latency still require gameplay testing. New geometry receives a 200 ms settling window.
+- Block checks do not validate placement support, rotation, every dig packet, inventory automation, authentication or ore obfuscation.
 - Translated or older clients need separate testing. Initial runtime checks use a 26.2 client.
 
 Target deployment: 600 players. That capacity is not validated. Bounded work and small state are design choices, not a measured TPS guarantee.
@@ -112,7 +156,7 @@ See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented 
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.2.0.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.3.0.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

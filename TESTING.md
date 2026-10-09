@@ -1,8 +1,35 @@
 # Test record
 
+## 0.3.0
+
+Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 64,035 bytes; SHA-256 `9543ce71dd6ca8dd8f244eef090c99bea727db12c25ce419580164c9902ea50a`.
+
+Maven verification passed 72 unit tests with no failures or skips. Added cases cover token refill/bursts, backward clocks, native mining early-stop allowance, tool upgrades, lag-compensated mining, geometry crossings/grazing/visible corners, action-policy limits, immutable target history and stale/cross-world/future snapshots. A concurrent test submits work from 600 tasks through eight threads and verifies exactly 1,000 accepted cell reservations in a 50 ms window; stale callers cannot reopen an older window. It tests the budget, not live Folia regions.
+
+The full Paper 26.2-132 and Folia 26.2-7 runtime runs each passed 63 assertions and stopped cleanly. Both used the same candidate JAR and the isolated setup described below; no production files were involved. No NordGuard internal-check or region-ownership errors appeared.
+
+The new action suite invokes synthetic owner-thread Bukkit events. It verifies legal/far attack and block distances, custom interaction attributes and weapon components, premature mining, instant overrides including repeated starts, unknown starts, rate budgets, OBSERVE/OFF modes, bypass and preservation of prior cancellations. A separate Mineflayer case performs a real ordinary attack and mines stone with Reach, WallHit, BlockReach and FastBreak in CORRECT mode. Those actions must succeed. The synthetic gates do not prove that every forged client packet reaches the event or that every cheat variant is blocked.
+
+NoClip has a test-only history injection across a stone wall, requiring its own evidence and return. This validates the sampled-path/setback integration, not a reproduced client exploit. Scan tests cover oversized bounds, a small unloaded area without chunk loading, dynamic trapdoors and a monotonic WallHit settling deadline. The movement fixture now keeps micro-hop and ordinary sprint-jump scenarios on its prepared floor; an earlier run that left the floor is not counted as a successful regression.
+
+A warm one-player microbenchmark uses 100 scheduler ticks of warm-up and 800 recorded environment probes plus 800 Reach attack events, four calls per tick. These are local operation timings in synthetic terrain, not plugin-wide latency, a WallHit stress test or a 600-player capacity result. The 600-model workload below still excludes world and action checks.
+
+| Platform / operation | Median us | p95 us | Maximum us |
+| --- | ---: | ---: | ---: |
+| Paper environment | 4.9 | 51.0 | 238.6 |
+| Paper Reach event | 4.0 | 37.8 | 299.4 |
+| Folia environment | 5.5 | 62.9 | 379.2 |
+| Folia Reach event | 4.6 | 48.6 | 511.5 |
+
+The released JAR excludes GuardProbe, unit tests, benchmark code, worlds and logs. Defaults remain OBSERVE; there are no automatic kicks or bans.
+
+Remaining validation for 0.3.0: live cross-region combat with multiple real players, saturated spatial-budget fairness, real terrain/weapon/component variety, translated clients and packet timing, large-scale sustained load, and cheat-client reproductions. Two immutable history samples are not a complete lag-compensated packet timeline. These limits are part of the release scope, not hidden passing tests.
+
+## Historical 0.2.0 validation
+
 Date: 2026-10-09. Release candidate: 0.2.0. Windows 11, Oracle JDK 25.
 
-## Unit tests
+### Unit tests
 
 `mvn -B -ntp clean verify`: 43 tests passed, no failures or skipped tests. GitHub Actions also passed the source build and all 43 tests.
 
@@ -10,13 +37,13 @@ Coverage includes ordinary sprint jumps, sustained hover, wall ascent, sustained
 
 New cases cover micro-hop speed below the previous allowance, repeated ordinary sprint-jump momentum, early Spider evidence, ordinary jumps against walls, artificial slow falling, source-surface oscillations, brief surface crossings, ordinary/fast ladder ascent, ordinary/excessive cobweb movement, medium transitions, supported ladder-bottom anchors, zero-gravity attributes, item-use slowdown and custom full-speed item-use components. A migration test preserves existing modes while missing new check entries default to OBSERVE.
 
-## Reproduced 0.1.0 regression
+### Reproduced 0.1.0 regression
 
 The retained original release JAR was tested with immediate repeated flight after its first successful setback. The first correction passed; the second flight attempt failed to receive another correction within five seconds. This is a failing regression, not a passing cheat-coverage test. Version 0.1.1 changes anchor retention and the settling period to address it.
 
 The workload case runs 600 independent movement models through 1,200 frames each: 720,000 samples. It excludes block queries, native state reads, entity schedulers, packets, other plugins and real players. It is not evidence of capacity at 600 online players.
 
-## Isolated runtime checks
+### Isolated runtime checks
 
 Test runtimes use Minecraft 26.2 and a fresh flat world, with one loopback-only Mineflayer fixture account:
 
@@ -41,7 +68,7 @@ The suppression case deliberately changes the synthetic player's server-side fal
 
 GuardProbe and generated test worlds are not release contents. No production worlds, accounts, configurations or databases were used or modified.
 
-## Remaining validation
+### Remaining validation
 
 - Sustained high-load tests with world queries and distributed Folia regions.
 - Normal play across real terrain, knockback, enchantments, movement attributes and interactions with production plugins.
