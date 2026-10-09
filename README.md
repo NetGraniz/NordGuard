@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.3.0 is an experimental, observation-first build. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.4.0 adds an experimental packet timeline. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed.
 
 ## Checks
 
@@ -103,11 +103,26 @@ Temporary history resets keep the last clean supported return position. The firs
 | `/nordguard status` | Modes, sessions, evidence, corrections, sample/action timings and spatial budget counters. Requires `nordguard.admin`. | Console / OP |
 | `/nordguard reload` | Validate and reload configuration. Requires `nordguard.admin`. | Console / OP |
 | `/nordguard alerts` | Toggle personal alerts. Requires `nordguard.admin` and `nordguard.alerts`. | Explicit grant |
+| `/nordguard inspect <player>` | Inspect bounded movement-packet history and client-processing barrier diagnostics for an online player. Requires `nordguard.admin`. | Console / OP |
 | `nordguard.admin` | Administration commands. | OP |
 | `nordguard.alerts` | Receive subscribed alerts; rechecked before delivery. | false |
 | `nordguard.bypass` | Skip all checks. Do not grant by default. | false |
 
 Uses standard Bukkit permissions, including NordPerms. Administration does not grant a bypass. Non-OP moderators need explicit grants. No player identities belong in the repository.
+
+## Packet foundation (0.4.0)
+
+`packets.enabled: true` installs a transparent, version-pinned channel observer. It retains primitives, not Minecraft packet objects, and never reads Bukkit worlds or players from a network callback. Each player has a 256-event inbox and a 64-movement history. The existing entity-scheduler task drains at most 128 entries per tick. Overflow discards the whole uncertain queued prefix over bounded drains; existing movement and action checks keep running.
+
+Two Ping/Pong barriers per second measure client processing of the preceding outbound stream. At most four barriers remain pending, with a five-second timeout. The official 26.2 client handles this Ping on its game thread; keep-alive is not used for these measurements. Matching known IDs, ordered replies and timeouts bound the bookkeeping. Other plugins' Ping packets invalidate outstanding measurements; the last eight foreign IDs are avoided when choosing a probe. This is conservative coexistence, not a reserved or authenticated protocol namespace.
+
+The timeline observes movement variants, persistent input, client TickEnd, self velocity, teleports and matching teleport confirmations. Outbound chunk/block changes, self attributes/effects/metadata, abilities and other transitions invalidate confidence. Nested or oversized bundles also invalidate it. Relative teleport coordinates are not treated as absolute positions. TickEnd is an untrusted claim; an independent monotonic rate budget records excess without awarding time from packet count. Its burst diagnostics are not grounds for correction or bans.
+
+An acknowledged stream prefix does **not** reconstruct the client's world or prove that a modified client obeyed a packet. No packet-based correction is enabled in this build. Reach history and existing movement checks retain their previous behavior; this timeline does not silently replace them with complete latency compensation.
+
+`OrdinaryPhysics` separately implements the verified 26.2 free-space arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. It is unit tested but not wired into enforcement. Collision shapes, step-up, client-world replication, ambiguous in-flight state and candidate selection still need implementation and differential validation before it can become a movement predictor. Fluids, climbing, vehicles and special movement are outside this kernel's contract.
+
+Packet collection can be disabled and re-enabled with configuration reload. Observer failures disable diagnostics for the affected session without suspending the existing checks. Quit, retired sessions and plugin disable remove only their own channel handler. Diagnostic output is requested by an administrator; there is no automatic per-packet logging or disk I/O. History and barrier storage use 15,696 bytes of primitive-array payload per session, excluding object headers, native channel state and shared bindings.
 
 If NordCommands filters available commands, add `nordguard` to its allowed command labels. NordGuard still requires its own administration permission; making the label visible does not grant access.
 

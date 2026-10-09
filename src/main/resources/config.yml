@@ -42,3 +42,9 @@ movement:
 alerts:
   cooldown-seconds: 10
   console: true
+# Bounded 26.2 packet diagnostics; no packet-based punishment in this build.
+# 2 Ping/Pong barriers per second, 256 inbox entries, 64 movement history entries.
+# Turn off to retain the event/tick checks without the channel observer.
+packets:
+  enabled: true
+

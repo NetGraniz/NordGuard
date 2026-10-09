@@ -1,5 +1,5 @@
 name: NordGuard
-version: 0.3.0
+version: 0.4.0
 main: dev.nordfjell.guard.NordGuard
 api-version: '26.2'
 folia-supported: true
@@ -7,11 +7,11 @@ description: Bounded movement, combat and block checks for Paper and Folia.
 commands:
   nordguard:
     description: NordGuard administration
-    usage: /nordguard <status|reload|alerts>
+    usage: /nordguard <status|reload|alerts|inspect player>
     permission: nordguard.admin
 permissions:
   nordguard.admin:
-    description: Access NordGuard status, reload and alert subscription.
+    description: Access NordGuard status, reload, packet inspection and alert subscription.
     default: op
   nordguard.alerts:
     description: Receive subscribed violation alerts.

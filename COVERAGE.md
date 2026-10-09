@@ -1,6 +1,6 @@
 # Wurst coverage map
 
-NordGuard 0.3.0, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked.
+NordGuard 0.4.0, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. The observation-only packet timeline does not add new enforced cheat coverage.
 
 The feature catalog was checked against the [official Wurst source tree at f98551a](https://github.com/Wurst-Imperium/Wurst7/tree/f98551a3bfab97a1e70c340f91b334976c7fc4c2/src/main/java/net/wurstclient/hacks). The movement implementations linked below were inspected to design synthetic cases. Other rows classify scope; they are not individual source audits or exploit reproductions. No Wurst code is bundled or copied.
 
@@ -28,9 +28,9 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 
 | Feature | Status | Missing work or reason |
 | --- | --- | --- |
-| Timer | Partial | Excessive sampled movement can trigger SPEED; packet rates, ordering and stationary timer use are not validated. |
-| Blink | Partial | Large sampled displacements can accumulate speed evidence; no latency-compensated packet timeline. |
-| TpAura | Partial | Movement, Reach and WallHit check excessive actions. No complete packet timeline. |
+| Timer | Partial | Excessive sampled movement can trigger SPEED. TickEnd rate is now recorded against a monotonic burst budget, but it is diagnostic only and is not a validated Timer classifier. |
+| Blink | Partial | Large sampled displacements can accumulate speed evidence; bounded packet history and prefix acknowledgements are not a replicated, latency-compensated client world. |
+| TpAura | Partial | Movement, Reach and WallHit check excessive actions. The new packet observer does not correlate combat with replicated client state. |
 | NoClip | Partial | Near-horizontal sampled paths through full cubes, clear endpoints, normal-height bodies and 0.8–4 block displacement. Partial shapes and smaller/vertical steps are not covered. Shared scan budget can defer. |
 | AntiKnockback | Not implemented | Server impulses are allowed, but acceptance of knockback is not required. |
 | AntiEntityPush | Not implemented | Entity pushes are not reconstructed. |

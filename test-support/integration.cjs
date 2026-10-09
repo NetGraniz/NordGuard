@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
+const DelayProxy = require('./delay-proxy.cjs');
+const proxy = new DelayProxy();
 const { spawn } = require('node:child_process');
 const [rootArg, java, seedArg, platform, modules] = process.argv.slice(2);
 const root = path.resolve(rootArg), seed = path.resolve(seedArg);
@@ -66,7 +68,8 @@ async function main() {
   await marker('nordguard reload',/Reload rejected; previous policy kept/);
   fs.writeFileSync(configPath,originalConfig);
   await marker('nordguard reload',/configuration reloaded/); pass('invalid reload retains last valid policy');
-  bot=mineflayer.createBot({host:'127.0.0.1',port:25659,username:'GuardFixture',version:'26.2',auth:'offline'});
+  await proxy.start();
+  bot=mineflayer.createBot({host:'127.0.0.1',port:25660,username:'GuardFixture',version:'26.2',auth:'offline'});
   bot.on('error',error=>{output+='\nBOT_ERROR '+error.message});
   await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(Error('bot spawn timeout')),60000);
@@ -78,6 +81,12 @@ async function main() {
   await marker('guardprobe probe GuardFixture',/GUARD_GEOMETRY_PASS/); pass('actual block-shape support and body clearance');
   await marker('guardprobe permissions GuardFixture',/GUARD_PERMISSIONS_PASS/); pass('ordinary account has no admin, alerts or bypass');
   await marker('nordguard status',/sessions=1/); pass('player scheduler active');
+  const packetState=await marker('nordguard inspect GuardFixture',/Barrier RTT ms=(\d+), acks=([1-9]\d*)/);
+  assert(+packetState[2]>0);pass('native channel installation and real Ping/Pong acknowledgement');
+  await marker('nordguard inspect GuardFixture',/teleport acknowledgements=[1-9]\d*/);pass('real teleport confirmation observed');
+  bot._client.write('tick_end',{});
+  await sleep(150);
+  await marker('nordguard inspect GuardFixture',/client ticks=[1-9]\d*/);pass('native client TickEnd observation');
   if(!process.env.NORD_GUARD_ACTIONS_ONLY) {
   await marker('guardprobe fall GuardFixture',/GUARD_NATIVE_PASS fall/); pass('native fall damage and FALL event');
   await marker('guardprobe cancel GuardFixture',/GUARD_NATIVE_PASS cancel/); pass('cancelled FALL event preserves health');
@@ -342,18 +351,39 @@ async function main() {
   await bot.dig(bot.blockAt(miningPosition));
   await marker('guardprobe clientresult GuardFixture',/GUARD_CLIENT_DONE/);
   for(const name of output.slice(clientOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('real client: '+name[1]);
+  for(const [delay,jitter] of [[100,false],[300,false],[150,true]]) {
+    proxy.delay=delay;proxy.jitter=jitter;
+    await sleep(2000);
+    const state=await marker('nordguard inspect GuardFixture',/Barrier RTT ms=(\d+), acks=(\d+)/);
+    assert(+state[1]>=delay*2-35,'Actual delayed TCP roundtrip must appear in packet timeline');
+    console.log('GUARD_NETWORK delay_per_direction_ms='+delay+' jitter='+jitter+' measured_rtt_ms='+state[1]);
+    pass('real TCP delay '+delay+'ms per direction'+(jitter?' with ordered jitter':''));
+  }
+  proxy.delay=0;proxy.jitter=false;await sleep(1000);
+  await marker('guardprobe stall GuardFixture',/GUARD_STALL_DONE/);
+  await sleep(1000);
+  await marker('nordguard inspect GuardFixture',/observer=true/);pass('observer survives 350ms owner-thread stall');
+  fs.writeFileSync(configPath,originalConfig.replace('enabled: true','enabled: false'));
+  await marker('nordguard reload',/configuration reloaded/);await sleep(300);
+  await marker('nordguard inspect GuardFixture',/Packet observer is not attached/);pass('packet observer disabled without disabling checks');
+  fs.writeFileSync(configPath,originalConfig);await marker('nordguard reload',/configuration reloaded/);await sleep(1500);
+  await marker('nordguard inspect GuardFixture',/Barrier RTT ms=(\d+), acks=([1-9]\d*)/);pass('packet observer reattaches after reload');
+  await marker('guardprobe networkvelocity GuardFixture',/GUARD_PACKET_IMPULSE_SENT/);await sleep(300);
+  await marker('nordguard inspect GuardFixture',/impulses=[1-9]\d*/);pass('outbound self velocity observed');
   await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
   const perf=await marker('guardprobe perf GuardFixture',/GUARD_PERF probe_ns median=(\d+) p95=(\d+) max=(\d+) event_ns median=(\d+) p95=(\d+) max=(\d+) samples=800/);
   console.log(perf[0]);pass('bounded warm probe and Reach-event microbenchmark (not a capacity test)');
   await marker('nordguard status',/Action events=/);
-  assert(!/GUARD_PROBE_FAIL|Cannot read world asynchronously|Deferred player check after internal error/.test(output));
+  assert(!/GUARD_PROBE_FAIL|Cannot read world asynchronously|Deferred player check after internal error|Packet diagnostics unavailable|Packet observer could not attach|Packet diagnostics disabled for session/.test(output));
   pass('no region ownership errors');
+  await marker('guardprobe disableguard GuardFixture',/GUARD_PACKET_CLEANUP_PASS/);pass('plugin disable removes native channel handler');
 }
 (async()=>{
   let failure;
   try {await main()} catch(error) {failure=error;console.error(error)}
   finally {
     if(bot)bot.quit();
+    proxy.close();
     if(server&&!exited){server.stdin.write('stop\n');for(let i=0;i<300&&!exited;i++)await sleep(100);if(!exited){server.kill();failure ||= Error('Server did not stop cleanly')}}
     fs.writeFileSync(path.join(root,'guard-test-output.log'),output);
     fs.writeFileSync(path.join(root,'guard-test-results.json'),JSON.stringify({platform,passed,error:failure?.message||null},null,2));

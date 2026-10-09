@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Add a bounded, observation-only 26.2 packet timeline with movement variants, persistent input, TickEnd, teleport confirmations and self velocity.
+- Measure known ordered Ping/Pong client-processing barriers; invalidate confidence after outbound world/context updates, missing replies and queue overflow. Do not equate this with a replicated client world.
+- Keep all network callbacks free of Bukkit state reads. Retain primitive fields in a fixed inbox and drain through the existing owner scheduler.
+- Isolate optional observer failures from movement enforcement; remove channel handlers on quit, retired sessions and disable, including attachment races.
+- Add `/nordguard inspect <player>` and reloadable `packets.enabled`. No per-packet logging, new punishment mode or automatic ban.
+- Add a standalone 26.2 ordinary free-space physics kernel and unit tests. Collision and client-world prediction are not implemented by that kernel.
+- Extend isolated runtime tests with an actual delayed TCP relay, barrier observation, owner-thread stalls and observer reload lifecycle checks.
+
 ## 0.3.0
 
 - Add Reach and bounded WallHit checks before attack damage, respecting native interaction attributes and weapon ATTACK_RANGE components.

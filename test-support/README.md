@@ -6,7 +6,7 @@ Build the release with JDK 25 and Maven, then run `build-probe.ps1` with `-JavaH
 node test-support/integration.cjs <fresh-nordguard-test-directory> <java-executable> <test-runtime-seed> <Paper-or-Folia> <mineflayer-node_modules-directory>
 ```
 
-Requires Mineflayer with Minecraft 26.2 support. Creates a fresh synthetic world at `127.0.0.1:25659` with one offline fixture account. The port must be free; run platforms sequentially.
+Requires Mineflayer with Minecraft 26.2 support. Creates a fresh synthetic world at `127.0.0.1:25659` with one offline fixture account. A test-only TCP relay listens on `127.0.0.1:25660`. Both ports must be free; run platforms sequentially.
 
 Only executable runtime files, libraries and an existing accepted EULA are copied from the seed. No worlds, player data, existing plugins or configuration are copied. The runner installs NordGuard and test-only GuardProbe, checks commands, geometry, scheduling, native damage, cancellation and a forged-ground movement scenario, then stops the server and saves local results.
 
@@ -25,3 +25,7 @@ The NoClip case injects a previous sampled position across a synthetic stone wal
 A bounded microbenchmark warms up for 100 entity ticks, then records 200 ticks with four environment probes and four Reach attack events each. It prints the median, p95 and maximum of 800 measurements per operation. World geometry is synthetic and mostly stationary; this is not a distributed 600-player test or a full WallHit/NoClip cost measurement. The production JAR contains no benchmark code.
 
 For development only, `NORD_GUARD_ACTIONS_ONLY=1` skips the older movement scenarios. Do not count that run as the full regression suite. Runtime results are written to the isolated directory, never the repository.
+
+Version 0.4.0 checks native channel attachment, actual Ping/Pong barriers, TickEnd, matching teleport confirmations and outbound self velocity. The TCP relay delays real traffic by 100 or 300 ms in each direction, then adds ordered jitter at 150 ms. Barrier RTT must include the injected delay. These cases validate transport bookkeeping, not movement prediction under lag or complete latency compensation.
+
+The companion deliberately stalls its fixture's owner thread for 350 ms, checks that observation survives, disables/re-enables packet collection via configuration reload and finally disables NordGuard. A channel-event-loop check requires the owned observer to be absent afterward. Do not run these fault-injection commands on production. There is still no 600-client/network/region capacity test.

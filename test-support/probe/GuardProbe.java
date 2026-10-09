@@ -36,7 +36,27 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if (action.equals("actions")) {
+                if (action.equals("disableguard")) {
+                    Object nativePlayer=player.getClass().getMethod("getHandle").invoke(player);
+                    Object listener=nativePlayer.getClass().getField("connection").get(nativePlayer);
+                    Object network=listener.getClass().getField("connection").get(listener);
+                    var transport=(io.netty.channel.Channel)network.getClass().getField("channel").get(network);
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Bukkit.getGlobalRegionScheduler().run(this,ignored->{
+                        Bukkit.getPluginManager().disablePlugin(guard);
+                        transport.eventLoop().schedule(()->{
+                            if(transport.pipeline().get("nordguard_observer")!=null) getLogger().severe("GUARD_PROBE_FAIL observer remained after disable");
+                            else getLogger().info("GUARD_PACKET_CLEANUP_PASS");
+                        },500,java.util.concurrent.TimeUnit.MILLISECONDS);
+                    });
+                } else if (action.equals("networkvelocity")) {
+                    player.setVelocity(new org.bukkit.util.Vector(.1,.2,0));
+                    getLogger().info("GUARD_PACKET_IMPULSE_SENT");
+                } else if (action.equals("stall")) {
+                    // Isolated fixture only: exercise a long owner sampling gap without touching production.
+                    java.util.concurrent.locks.LockSupport.parkNanos(350_000_000L);
+                    getLogger().info("GUARD_STALL_DONE");
+                } else if (action.equals("actions")) {
                     actionSuite(player);
                 } else if(action.equals("phase")) {
                     phaseSuite(player);

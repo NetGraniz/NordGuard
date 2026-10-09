@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $mavenRoot = Join-Path $env:USERPROFILE '.m2\repository'
 $apiJar = Join-Path $mavenRoot 'io\papermc\paper\paper-api\26.2.build.129-stable\paper-api-26.2.build.129-stable.jar'
-$dependencies = Get-ChildItem $mavenRoot -Recurse -File -Filter '*.jar' | Where-Object { $_.FullName -match 'adventure|examination|annotations|bungeecord-chat|guava' }
+$dependencies = Get-ChildItem $mavenRoot -Recurse -File -Filter '*.jar' | Where-Object { $_.FullName -match 'adventure|examination|annotations|bungeecord-chat|guava|netty' }
 $probeClasspath = (@($apiJar, (Join-Path $projectRoot 'target\classes')) + $dependencies.FullName) -join ';'
 $classesPath = Join-Path $PSScriptRoot 'build\classes'
 New-Item -ItemType Directory -Force -Path $classesPath | Out-Null

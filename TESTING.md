@@ -1,5 +1,25 @@
 # Test record
 
+## 0.4.0
+
+Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 91,838 bytes; SHA-256 `437e61f9f98cf9d25d44ea5d7b65767c1a28f0da0d1ed094e68cc259654e9358`.
+
+Maven verification passed 100 unit tests with no failures or skips. New tests cover SPSC publication across real threads, bounded wraparound and overflow, whole-prefix discard across capped drains, known ordered barrier replies, stale/foreign/reordered replies, teleport IDs, persistent input and missing movement packets, timer burst bookkeeping, non-finite samples and capped history. The physics kernel has 17 cases, including a float-bit regression for the client's reciprocal-multiply input normalization.
+
+The synthetic packet workload constructs 600 independent inboxes and histories, then processes 2,160,000 primitive events. This local run took 532 ms and reported 200 thread-allocated bytes during the loop after construction. It excludes native decoding, Netty callbacks, sockets, world queries, region schedulers and real players. It is not a 600-player capacity or plugin-wide allocation result. The existing 720,000-sample pure movement workload also passed.
+
+Paper 26.2-132 passed all 74 runtime assertions with the candidate JAR and stopped cleanly. In addition to the previous suite, the runner observes actual channel attachment, Ping/Pong, TickEnd, teleport confirmations and self velocity. A loopback TCP relay delays traffic in both directions: 100 ms produced a 213 ms measured barrier RTT; 300 ms produced 620 ms. At 150 ms with ordered jitter, the recorded RTT was 381 ms. These values are observations from one run, not latency bounds.
+
+The packet observer survived an injected 350 ms owner-thread stall. Configuration reload disabled and reattached it without disabling ordinary checks. Final plugin disable removed the owned handler, verified on the channel event loop. No internal-check, observer-bind or region-ownership errors appeared in the Paper run. The preliminary Paper run is not counted as validation of the final candidate.
+
+The warm Paper microbenchmark measured environment median/p95/max of 6.8/56.9/237.6 us and Reach-event 6.1/52.1/164.6 us over 800 measurements per operation. This is not a controlled before/after comparison or a measurement of total packet-observer overhead.
+
+Folia 26.2-7 passed the same 74 assertions with the identical candidate JAR and stopped cleanly. The actual delayed TCP RTTs were 221 ms at 100 ms per direction, 615 ms at 300 ms per direction and 389 ms at 150 ms with ordered jitter. Observer reload, self velocity and final channel-handler removal passed without internal or region-ownership errors. Its warm environment median/p95/max was 5.4/57.4/274.0 us; Reach-event was 4.5/45.5/205.7 us. These remain one-player microbenchmarks, not distributed load validation.
+
+No packet-based punishment or complete client-world reconstruction is shipped. The standalone ordinary physics kernel does not clip collision shapes, perform step-up or select a latency-compensated candidate. Player testing cannot substitute for implementing those parts. Large-scale distributed load, real client movement under lag and interactions with packet-rewriting plugins remain unvalidated.
+
+All runtime data are fresh synthetic fixtures; production was not read or changed. The release JAR excludes test probes, worlds, logs, test classes and Netty dependencies.
+
 ## 0.3.0
 
 Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 64,035 bytes; SHA-256 `9543ce71dd6ca8dd8f244eef090c99bea727db12c25ce419580164c9902ea50a`.
