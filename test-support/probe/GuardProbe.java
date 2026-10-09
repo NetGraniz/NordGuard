@@ -36,7 +36,13 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if(action.equals("replicanative")) {
+                if(action.equals("replicaedit") || action.equals("replicarestore")) {
+                    ReplicaNativeProbe.edit((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,action.equals("replicarestore"));
+                    getLogger().info("GUARD_REPLICA_EDIT_SENT "+action);
+                } else if(action.equals("replicaeditcheck")) {
+                    ReplicaNativeProbe.verifyEdit((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,args[2]);
+                    getLogger().info("GUARD_REPLICA_EDIT_PASS "+args[2]);
+                } else if(action.equals("replicanative")) {
                     ReplicaNativeProbe.run((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,name->getLogger().info("GUARD_ACTION_PASS "+name));
                     getLogger().info("GUARD_REPLICA_NATIVE_DONE");
                 } else if(action.equals("replicaresend")) {

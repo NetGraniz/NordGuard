@@ -78,7 +78,10 @@ final class WorldSnapshot {
         public int estimatedBytes() { return 32+4*entries.length; }
     }
     record Forget(int x,int z) implements Update { public int estimatedBytes() { return 24; } }
-    record Reset() implements Update { public int estimatedBytes() { return 16; } }
+    record Reset(int minSection,int sections,String dimension) implements Update {
+        Reset() {this(0,0,"unknown");}
+        public int estimatedBytes() { return 32+2*dimension.length(); }
+    }
     record Invalidation() implements Update { public int estimatedBytes() { return 16; } }
     record Retain(int x,int z) implements Update { public int estimatedBytes() {return 24;} }
 }

@@ -17,7 +17,7 @@ final class NativeWorld {
     private final MethodHandle blockPos,blockState,posX,posY,posZ,stateId;
     private final MethodHandle sectionPos,sectionPositions,sectionStates,relativeX,relativeY,relativeZ;
     private final MethodHandle forgetPos,forgetX,forgetZ;
-    private final MethodHandle blockEventPos;
+    private final MethodHandle respawnInfo,loginInfo,dimensionType,dimensionKey,holderValue,minY,height,identifier;
 
     static NativeWorld bind() throws ReflectiveOperationException { return new NativeWorld(); }
     private NativeWorld() throws ReflectiveOperationException {
@@ -27,8 +27,14 @@ final class NativeWorld {
         forget=Class.forName(GAME+"ClientboundForgetLevelChunkPacket");
         respawn=Class.forName(GAME+"ClientboundRespawnPacket");
         login=Class.forName(GAME+"ClientboundLoginPacket");
+        respawnInfo=objectMethod(respawn,"commonPlayerSpawnInfo");loginInfo=objectMethod(login,"commonPlayerSpawnInfo");
+        Class<?> info=Class.forName(GAME+"CommonPlayerSpawnInfo");
+        dimensionType=objectMethod(info,"dimensionType");dimensionKey=objectMethod(info,"dimension");
+        holderValue=objectMethod(Class.forName("net.minecraft.core.Holder"),"value");
+        Class<?> dimension=Class.forName("net.minecraft.world.level.dimension.DimensionType");
+        minY=method(dimension,"minY",int.class);height=method(dimension,"height",int.class);
+        identifier=objectMethod(Class.forName("net.minecraft.resources.ResourceKey"),"identifier");
         blockEvent=Class.forName(GAME+"ClientboundBlockEventPacket");
-        blockEventPos=objectMethod(blockEvent,"getPos");
         chunkX=method(chunk,"getX",int.class);chunkZ=method(chunk,"getZ",int.class);
         chunkReady=method(chunk,"isReady",boolean.class);chunkData=objectMethod(chunk,"getChunkData");
         chunkBuffer=privateField(Class.forName(GAME+"ClientboundLevelChunkPacketData"),"buffer",byte[].class);
@@ -97,17 +103,22 @@ final class NativeWorld {
                 return WorldSnapshot.Blocks.owned(entries);
             }
             if(type==blockEvent) {
-                Object position=blockEventPos.invokeExact(packet);
-                int x=(int)posX.invokeExact(position)>>4,z=(int)posZ.invokeExact(position)>>4;
                 // Any block event may affect neighboring chunks (notably piston pushes).
-                // We do not replay block events: all interested events invalidate the replica.
-                return interest.test(x,z)?new WorldSnapshot.Invalidation():null;
+                // Even an event outside the tracked area can push blocks into it.
+                return new WorldSnapshot.Invalidation();
             }
             if(type==forget) {
                 Object position=forgetPos.invokeExact(packet);
                 return new WorldSnapshot.Forget((int)forgetX.invokeExact(position),(int)forgetZ.invokeExact(position));
             }
-            if(type==respawn||type==login) return new WorldSnapshot.Reset();
+            if(type==respawn||type==login) {
+                Object info=type==respawn?respawnInfo.invokeExact(packet):loginInfo.invokeExact(packet);
+                Object holder=dimensionType.invokeExact(info),dimension=holderValue.invokeExact(holder);
+                int min=(int)minY.invokeExact(dimension),size=(int)height.invokeExact(dimension);
+                Object key=dimensionKey.invokeExact(info),name=identifier.invokeExact(key);
+                if((min&15)!=0 || (size&15)!=0)return new WorldSnapshot.Invalidation();
+                return new WorldSnapshot.Reset(min>>4,size>>4,name.toString());
+            }
             return null;
         } catch(RuntimeException failure) { throw failure; }
         catch(Throwable failure) { throw new IllegalStateException("Cannot capture 26.2 outbound world packet",failure); }

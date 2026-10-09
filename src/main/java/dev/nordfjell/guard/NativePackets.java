@@ -158,6 +158,7 @@ final class NativePackets {
         private int centerX,centerZ;
         private final String name="nordguard_observer";
         private final Observer observer=new Observer(this);
+        private final io.netty.channel.ChannelFutureListener writeObserver=future->{if(!future.isSuccess())failed();};
         private volatile boolean closing;
         private volatile boolean failed,installed;
         private Object ownPing;
@@ -195,6 +196,7 @@ final class NativePackets {
                 if(transport.pipeline().get(name)!=null) { failed();return; }
                 transport.pipeline().addBefore("packet_handler",name,observer);
                 installed=true;marker(ATTACHED,entityId);
+                if(worldEnabled)sink.world(new WorldSnapshot.Retain(centerX,centerZ));
             } catch(Throwable failure) { failed(); }
         }
         private void sendProbe(int id) {
@@ -231,7 +233,12 @@ final class NativePackets {
             if(!owner.failed && !owner.closing) {
                 try { outbound(owner,message); } catch(Throwable failure) { owner.failed(); }
             }
-            ctx.write(message,promise);
+            ChannelPromise forwarded=promise;
+            if(owner.worldEnabled && (worldChanges.contains(message.getClass()) || bundle.isInstance(message))) {
+                try {forwarded=promise.unvoid();forwarded.addListener(owner.writeObserver);}
+                catch(Throwable failure) {owner.failed();forwarded=promise;}
+            }
+            ctx.write(message,forwarded);
         }
         @Override public void channelInactive(ChannelHandlerContext ctx) throws Exception {
             owner.failed();ctx.fireChannelInactive();

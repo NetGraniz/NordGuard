@@ -1,5 +1,17 @@
 # Test record
 
+## 0.5.0-rc.2 — stage 1
+
+Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 146,820 bytes; SHA-256 `626ef3e0da7c0b54b5faaa2b30ea4b89860716c4c521a0e360a26af8349f2a6b`. No production files were accessed or changed. The predictor remains disconnected from runtime checks.
+
+Local verification passed 177 unit tests with no failures or skips. The 22 new journal cases cover matching/foreign/duplicate/reused barrier IDs, exact prefix commits, newer pending changes, unaffected chunks, reordered/expired/backward replies, timeout cleanup, entry/barrier/aggregate-byte caps, repeated ring reuse, malformed or budget-denied decoding, dimension reset, retained-area pruning, invalid block batches, denied copy-on-write materialization, movement-event ordering, inbox overflow and observer/context loss.
+
+World changes no longer update the confirmed cache immediately. A sent Ping snapshots the journal sequence; its ordered matching Pong commits only that prefix. The future predictor's geometry lookup returns unknown for dirty chunks. This does not authenticate the client, retain every possible historical branch, or integrate movement prediction. Unknown initial or previously untracked chunks can remain unknown until naturally resent. All block events invalidate knowledge rather than simulate moving blocks; this can reduce coverage in active builds.
+
+The journal adds a separate 16-update / 512 KiB limit and four barriers per opted-in player. Together with the inbox and confirmed cache, accounted payload can reach 1.5 MiB per player before headers and temporary allocations. The optional cache stays off by default. Existing global work budgets and checks are unchanged. There is no distributed 600-player capacity result, controlled comparison with another anticheat, or claim that these tests establish a CPU-time ceiling.
+
+Remaining stages: integrate ordinary packet prediction and scene/support selection; handle special movement and safe corrections; test normal and hostile real clients under lag; then validate sustained distributed load and tune defaults before a stable release. Entity collisions, complete native step-up parity and packet-rewriting plugin interactions still need validation. Stage 1 is a bounded acknowledged-prefix foundation, not the completed anticheat.
+
 ## 0.5.0-rc.1
 
 Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 140,703 bytes; SHA-256 `c95c45ca3fe577c3fe7310d53aa77d5b5fe7bbcef9bd10fb6dedbad61a0ee744`. This is a release candidate. The new predictor is not connected to punishment or to live packet processing.

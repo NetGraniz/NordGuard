@@ -232,6 +232,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
                     detail[detail.length-1]=world==null?"Replica disabled (diagnostic only)."
                             :"Replica chunks="+world.size()+", bytes="+world.bytes()+", decoded="+world.decoded()
                             +", invalidated="+world.invalidated()+", evicted="+world.evicted()+" (diagnostic only).";
+                    if(session.worldSync!=null) {
+                        detail=Arrays.copyOf(detail,detail.length+1);detail[detail.length-1]=session.worldSync.diagnostic();
+                    }
                 }
                 final String[] response=detail;
                 if (sender instanceof Player receiver) receiver.getScheduler().run(this, ignored -> {
@@ -296,6 +299,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         PacketInbox inbox;
         PacketTimeline timeline;
         ClientWorld clientWorld;
+        AcknowledgedWorld worldSync;
         boolean packetAttachFailed;
         boolean seenReplica;
         final java.util.function.IntPredicate materializeBudget=cells->worldMaterializeBudget.acquire(System.nanoTime(),cells,1_000_000);
@@ -320,29 +324,23 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
         void packetTick(long now) {
             if (!packetsEnabled || packets == null) {
-                closePackets(); packetHandle = null; inbox = null; timeline = null; clientWorld=null;return;
+                closePackets(); packetHandle = null; inbox = null; timeline = null; clientWorld=null;worldSync=null;return;
             }
             if (packetAttachFailed) return;
             if(packetHandle!=null && seenReplica!=replicaEnabled) {
-                closePackets();packetHandle=null;inbox=null;timeline=null;clientWorld=null;
+                closePackets();packetHandle=null;inbox=null;timeline=null;clientWorld=null;worldSync=null;
                 // Removal and installation use the same channel event loop, in order.
             }
             if (packetHandle == null) {
                 seenReplica=replicaEnabled;
                 clientWorld=seenReplica?new ClientWorld():null;
+                var world=player.getWorld();var at=player.getLocation();
+                worldSync=seenReplica?new AcknowledgedWorld(clientWorld,world.getMinHeight()>>4,
+                        (world.getMaxHeight()-world.getMinHeight())>>4,world.getKey().toString(),at.getBlockX()>>4,at.getBlockZ()>>4,
+                        bytes->worldDecodeBudget.acquire(System.nanoTime(),bytes,4*1024*1024),materializeBudget):null;
                 inbox = seenReplica?new PacketInbox(bytes -> worldCopyBudget.acquire(System.nanoTime(),bytes,8*1024*1024)):new PacketInbox();
-                timeline = new PacketTimeline(update -> {
-                    if(clientWorld==null)return;
-                    int min=player.getWorld().getMinHeight()>>4;
-                    int sections=(player.getWorld().getMaxHeight()-player.getWorld().getMinHeight())>>4;
-                    if(update instanceof WorldSnapshot.EncodedChunk encoded
-                            && !worldDecodeBudget.acquire(System.nanoTime(),encoded.estimatedBytes(),4*1024*1024)) {
-                        clientWorld.apply(new WorldSnapshot.Forget(encoded.x(),encoded.z()),sections,min);
-                        timeline.invalidate("replica decode budget");return;
-                    }
-                    try {clientWorld.apply(update,sections,min,materializeBudget);}
-                    catch(IllegalArgumentException error) {clientWorld.clear();timeline.invalidate("unsupported chunk data");}
-                });
+                timeline = new PacketTimeline(update -> {if(worldSync!=null)worldSync.stage(update);},
+                        seenReplica?event->worldSync.event(event.kind,event.id,event.nano):null);
                 try { packetHandle = packets.attach(player, inbox); }
                 catch (ReflectiveOperationException error) {
                     packetAttachFailed = true;
@@ -354,7 +352,12 @@ public final class NordGuard extends JavaPlugin implements Listener {
             long started = System.nanoTime();
             long droppedBefore=inbox.dropped();
             packetEvents.add(timeline.drain(inbox, now));
-            if(inbox.dropped()!=droppedBefore && clientWorld!=null)clientWorld.clear();
+            if(worldSync!=null) {
+                if(inbox.dropped()!=droppedBefore)worldSync.invalidate("inbox overflow during drain");
+                // Events can arrive during drain after the owner's initial sample timestamp.
+                worldSync.expire(System.nanoTime());
+                if(!packetHandle.active())worldSync.invalidate("inactive observer");
+            }
             timeline.transportActive(packetHandle.active());
             if (timeline.shouldProbe(now)) {
                 timeline.probeQueued(now);

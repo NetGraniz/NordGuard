@@ -20,8 +20,11 @@ final class PacketTimeline {
     private double x, y, z, velocityX, velocityY, velocityZ, tickCredit = 40;
     private String reason = "joining";
     private final java.util.function.Consumer<WorldSnapshot.Update> worldSink;
+    private final java.util.function.Consumer<PacketInbox.Cursor> eventSink;
     PacketTimeline() {this(update -> {});}
-    PacketTimeline(java.util.function.Consumer<WorldSnapshot.Update> worldSink) {this.worldSink=worldSink;}
+    PacketTimeline(java.util.function.Consumer<WorldSnapshot.Update> worldSink) {this(worldSink,null);}
+    PacketTimeline(java.util.function.Consumer<WorldSnapshot.Update> worldSink,
+                   java.util.function.Consumer<PacketInbox.Cursor> eventSink) {this.worldSink=worldSink;this.eventSink=eventSink;}
 
     int drain(PacketInbox inbox, long now) {
         if (inbox.dropped() != dropped) {
@@ -47,6 +50,7 @@ final class PacketTimeline {
     }
 
     void accept(PacketInbox.Cursor p) {
+        if(eventSink!=null)eventSink.accept(p);
         events++;
         if(p.kind==NativePackets.WORLD_DATA) {worldSink.accept(p.payload);return;}
         if (p.kind == NativePackets.ATTACHED) { attached = true; reason = "awaiting barrier"; }

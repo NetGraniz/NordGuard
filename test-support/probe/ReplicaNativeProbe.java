@@ -13,7 +13,47 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Isolated runtime codec checks. Reads only the synthetic player's owned loaded chunk. */
 final class ReplicaNativeProbe {
+    private static int editX,editY,editZ,originalId,editedId;
     private ReplicaNativeProbe() {}
+
+    static void edit(JavaPlugin guard,Player player,boolean restore) throws Exception {
+        ClassLoader loader=guard.getClass().getClassLoader();
+        Object level=player.getWorld().getClass().getMethod("getHandle").invoke(player.getWorld());
+        Class<?> posType=type(loader,"net.minecraft.core.BlockPos");
+        if(!restore) {
+            var at=player.getLocation();editX=at.getBlockX()+2;editY=at.getBlockY()+3;editZ=at.getBlockZ();
+        }
+        Object pos=posType.getConstructor(int.class,int.class,int.class).newInstance(editX,editY,editZ);
+        Object original=level.getClass().getMethod("getBlockState",posType).invoke(level,pos);
+        Class<?> stateType=type(loader,"net.minecraft.world.level.block.state.BlockState");
+        Method getId=type(loader,"net.minecraft.world.level.block.Block").getMethod("getId",stateType);
+        Object block=type(loader,"net.minecraft.world.level.block.Blocks").getField("STONE").get(null);
+        Object changed=block.getClass().getMethod("defaultBlockState").invoke(block);
+        if(!restore) {originalId=(int)getId.invoke(null,original);editedId=(int)getId.invoke(null,changed);
+            if(originalId==editedId)throw new AssertionError("Fixture edit must change a block");}
+        Object packet=type(loader,"net.minecraft.network.protocol.game.ClientboundBlockUpdatePacket")
+                .getConstructor(posType,stateType).newInstance(pos,restore?original:changed);
+        Object nativePlayer=player.getClass().getMethod("getHandle").invoke(player);
+        Object connection=nativePlayer.getClass().getField("connection").get(nativePlayer);
+        connection.getClass().getMethod("send",type(loader,"net.minecraft.network.protocol.Packet")).invoke(connection,packet);
+    }
+
+    static void verifyEdit(JavaPlugin guard,Player player,String phase) throws Exception {
+        Field sessions=guard.getClass().getDeclaredField("sessions");sessions.setAccessible(true);
+        Object session=((java.util.Map<?,?>)sessions.get(guard)).get(player.getUniqueId());
+        Field syncField=session.getClass().getDeclaredField("worldSync");syncField.setAccessible(true);Object sync=syncField.get(session);
+        int value=(int)method(sync.getClass(),"stateId",int.class,int.class,int.class).invoke(sync,editX,editY,editZ);
+        if(phase.equals("pending")) {
+            Field rawField=session.getClass().getDeclaredField("clientWorld");rawField.setAccessible(true);Object raw=rawField.get(session);
+            int old=(int)method(raw.getClass(),"stateId",int.class,int.class,int.class,int.class)
+                    .invoke(raw,editX,editY,editZ,player.getWorld().getMinHeight()>>4);
+            if(old!=originalId || value!=-1 || (int)method(sync.getClass(),"pending").invoke(sync)<1)
+                throw new AssertionError("Unacknowledged edit became known: raw="+old+", safe="+value);
+        } else {
+            int expected=phase.equals("restored")?originalId:editedId;
+            if(value!=expected)throw new AssertionError("Acknowledged edit expected="+expected+", actual="+value);
+        }
+    }
 
     /** Sends one fresh ordinary chunk packet through the real outbound observer. */
     static void resend(JavaPlugin guard,Player player) throws Exception {
@@ -49,6 +89,12 @@ final class ReplicaNativeProbe {
         for(int dy:new int[]{-1,0,1}) {
             int expected=(int)stateId.invoke(null,nativeState.invoke(nativeChunk,x,y+dy,z));
             assertState(replicaState,replica,x,y+dy,z,minSection,expected);
+        }
+        Field syncField=session.getClass().getDeclaredField("worldSync");syncField.setAccessible(true);Object sync=syncField.get(session);
+        Method safe=method(sync.getClass(),"stateId",int.class,int.class,int.class);
+        for(int dy:new int[]{-1,0,1}) {
+            int expected=(int)stateId.invoke(null,nativeState.invoke(nativeChunk,x,y+dy,z));
+            if((int)safe.invoke(sync,x,y+dy,z)!=expected)throw new AssertionError("Actual chunk prefix not acknowledged");
         }
         pass.accept("replica_actual_pipeline_queue_captured_foot_and_body");
     }
@@ -92,6 +138,16 @@ final class ReplicaNativeProbe {
         Object adapter=method(adapterType,"bind").invoke(null);
         Method read=method(adapterType,"read",Object.class,IntPredicate.class);
         IntPredicate allow=bytes->true,deny=bytes->false;
+        Object nativePlayer=player.getClass().getMethod("getHandle").invoke(player);
+        Object info=nativePlayer.getClass().getMethod("createCommonSpawnInfo",type(loader,"net.minecraft.server.level.ServerLevel"))
+                .invoke(nativePlayer,level);
+        Object respawn=type(loader,"net.minecraft.network.protocol.game.ClientboundRespawnPacket")
+                .getConstructor(type(loader,"net.minecraft.network.protocol.game.CommonPlayerSpawnInfo"),byte.class).newInstance(info,(byte)0);
+        Object reset=read.invoke(adapter,respawn,allow);requireType(reset,"Reset");
+        assertInt(reset,"minSection",minSection);assertInt(reset,"sections",expectedSections);
+        if(!method(reset.getClass(),"dimension").invoke(reset).equals(player.getWorld().getKey().toString()))
+            throw new AssertionError("Native dimension key mismatch");
+        pass.accept("replica_native_dimension_metadata");
         Object encoded=read.invoke(adapter,packet,allow);
         requireType(encoded,"EncodedChunk");
         Object decoded=method(encoded.getClass(),"decode").invoke(encoded);
@@ -182,8 +238,7 @@ final class ReplicaNativeProbe {
         Object event=type(loader,"net.minecraft.network.protocol.game.ClientboundBlockEventPacket")
                 .getConstructor(posType,blockType,int.class,int.class).newInstance(pos,stone,0,0);
         requireType(read.invoke(adapter,event,allow),"Invalidation");
-        if(interestedRead.invoke(adapter,event,mustNotReserve,noInterest)!=null)
-            throw new AssertionError("Far block event was not ignored");
+        requireType(interestedRead.invoke(adapter,event,mustNotReserve,noInterest),"Invalidation");
         pass.accept("replica_native_block_events_invalidate");
 
         Class<?> chunkPos=type(loader,"net.minecraft.world.level.ChunkPos");

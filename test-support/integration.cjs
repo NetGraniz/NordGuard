@@ -95,6 +95,23 @@ async function main() {
   await marker('guardprobe replicaresend GuardFixture',/GUARD_REPLICA_RESENT/);await sleep(1000);
   await marker('guardprobe replicacaptured GuardFixture',/GUARD_REPLICA_CAPTURED/);pass('actual outbound chunk captured through channel and owner queue');
   await marker('nordguard inspect GuardFixture',/Replica chunks=[1-9]\d*, bytes=[1-9]\d*, decoded=[1-9]\d*/);pass('replica diagnostics report bounded data');
+  const normalWrite=bot._client.write;
+  const heldPongs=[];let holdPongs=true;
+  bot._client.write=function(name,packet,...args) {
+    if(name==='pong' && holdPongs) {heldPongs.push(packet);return;}
+    return normalWrite.call(this,name,packet,...args);
+  };
+  await marker('guardprobe replicaedit GuardFixture',/GUARD_REPLICA_EDIT_SENT replicaedit/);
+  await sleep(1100);assert(heldPongs.length>0,'Actual Pong replies must be withheld');
+  await marker('guardprobe replicaeditcheck GuardFixture pending',/GUARD_REPLICA_EDIT_PASS pending/);
+  pass('withheld real Pong leaves old confirmed block and marks dirty chunk unknown');
+  holdPongs=false;for(const reply of heldPongs)normalWrite.call(bot._client,'pong',reply);
+  bot._client.write=normalWrite;await sleep(500);
+  await marker('guardprobe replicaeditcheck GuardFixture committed',/GUARD_REPLICA_EDIT_PASS committed/);
+  pass('ordered real Pong commits exactly the observed block update');
+  await marker('guardprobe replicarestore GuardFixture',/GUARD_REPLICA_EDIT_SENT replicarestore/);await sleep(1000);
+  await marker('guardprobe replicaeditcheck GuardFixture restored',/GUARD_REPLICA_EDIT_PASS restored/);
+  pass('packet-only fixture block restored through acknowledged stream');
   fs.writeFileSync(configPath,originalConfig);await marker('nordguard reload',/configuration reloaded/);await sleep(600);
   await marker('nordguard inspect GuardFixture',/Replica disabled/);pass('opt-in cache reload releases session cache');
   if(!process.env.NORD_GUARD_ACTIONS_ONLY) {
