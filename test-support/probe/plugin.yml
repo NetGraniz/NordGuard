@@ -1,0 +1,9 @@
+name: GuardProbe
+version: 1.0.0
+main: dev.nordfjell.guard.GuardProbe
+api-version: '26.2'
+folia-supported: true
+depend: [NordGuard]
+commands:
+  guardprobe:
+    description: Isolated test fixture; console only

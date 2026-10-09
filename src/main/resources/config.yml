@@ -1,0 +1,20 @@
+schema-version: 1
+# OFF, OBSERVE or CORRECT. Start with observation and test legitimate gameplay.
+checks:
+  flight: OBSERVE
+  spider: OBSERVE
+  speed: OBSERVE
+  highjump: OBSERVE
+  nofall: OBSERVE
+# Conservative starting values, not proof of coverage or capacity.
+movement:
+  violation-buffer: 6
+  horizontal-margin: 0.12
+  vertical-margin: 0.16
+  burst-ticks: 5
+  join-grace-ticks: 60
+  transition-grace-ticks: 20
+  max-sample-gap-ms: 250
+alerts:
+  cooldown-seconds: 10
+  console: true

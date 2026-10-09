@@ -1,0 +1,21 @@
+name: NordGuard
+version: 0.1.0
+main: dev.nordfjell.guard.NordGuard
+api-version: '26.2'
+folia-supported: true
+description: Bounded movement and NoFall checks for Paper and Folia.
+commands:
+  nordguard:
+    description: NordGuard administration
+    usage: /nordguard <status|reload|alerts>
+    permission: nordguard.admin
+permissions:
+  nordguard.admin:
+    description: Access NordGuard status, reload and alert subscription.
+    default: op
+  nordguard.alerts:
+    description: Receive subscribed violation alerts.
+    default: false
+  nordguard.bypass:
+    description: Explicit exemption from all NordGuard checks.
+    default: false
