@@ -35,6 +35,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         player.getScheduler().run(this, task -> {
             try {
                 if (action.equals("prepare")) {
+                    player.clearActiveItem();
                     Location at = player.getLocation();
                     int x = at.getBlockX(), z = at.getBlockZ(), y = 80;
                     for (int dx = -2; dx <= 24; dx++) for (int dz = -2; dz <= 2; dz++) {
@@ -47,6 +48,60 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     player.setGameMode(GameMode.SURVIVAL); player.setInvulnerable(false); player.setHealth(20);
                     player.teleportAsync(new Location(at.getWorld(), x + .5, y, z + .5)).thenRun(() ->
                         player.getScheduler().run(this, ignored -> getLogger().info("GUARD_PREPARED"), null));
+                } else if (action.equals("terrain")) {
+                    String kind = args[2];
+                    Location at = player.getLocation();
+                    int x = at.getBlockX(), z = at.getBlockZ();
+                    for (int dx = 0; dx <= 22; dx++) for (int dz = -2; dz <= 2; dz++) {
+                        if (!Bukkit.isOwnedByCurrentRegion(at.getWorld(), (x + dx) >> 4, (z + dz) >> 4)
+                                || !at.getWorld().isChunkLoaded((x + dx) >> 4, (z + dz) >> 4))
+                            throw new AssertionError("Medium fixture not loaded/owned");
+                        for (int y = 80; y < 96; y++) at.getWorld().getBlockAt(x + dx, y, z + dz).setType(Material.AIR, false);
+                        at.getWorld().getBlockAt(x + dx, 79, z + dz).setType(Material.STONE, false);
+                        if (kind.equals("waterwalk") && dx >= 2) {
+                            at.getWorld().getBlockAt(x + dx, 78, z + dz).setType(Material.STONE, false);
+                            at.getWorld().getBlockAt(x + dx, 79, z + dz).setType(Material.WATER, false);
+                        }
+                        if (kind.equals("noweb") && dx >= 2)
+                            for (int y = 80; y <= 81; y++) at.getWorld().getBlockAt(x + dx, y, z + dz).setType(Material.COBWEB, false);
+                    }
+                    if (kind.equals("spider") || kind.equals("climb")) {
+                        for (int y = 80; y < 96; y++) {
+                            at.getWorld().getBlockAt(x + 1, y, z).setType(Material.STONE, false);
+                            if (kind.equals("climb")) {
+                                var ladder = (org.bukkit.block.data.Directional) Bukkit.createBlockData(Material.LADDER);
+                                ladder.setFacing(org.bukkit.block.BlockFace.WEST);
+                                at.getWorld().getBlockAt(x, y, z).setBlockData(ladder, false);
+                            }
+                        }
+                    }
+                    player.teleportAsync(new Location(at.getWorld(), x + (kind.equals("climb") ? .5 : .69), 80, z + .5)).thenRun(() ->
+                        player.getScheduler().run(this, ignored -> getLogger().info("GUARD_TERRAIN " + kind), null));
+                } else if (action.equals("environment")) {
+                    getLogger().info("GUARD_ENV " + EnvironmentProbe.inspect(player, player.getLocation())
+                            + " climbing=" + player.isClimbing());
+                } else if (action.equals("item") || action.equals("itemcustom")) {
+                    player.clearActiveItem();
+                    var item = new org.bukkit.inventory.ItemStack(Material.SHIELD);
+                    if (action.equals("itemcustom")) item.setData(io.papermc.paper.datacomponent.DataComponentTypes.USE_EFFECTS,
+                            io.papermc.paper.datacomponent.item.UseEffects.useEffects().speedMultiplier(1).build());
+                    player.getInventory().setItemInMainHand(item);
+                    player.startUsingItem(org.bukkit.inventory.EquipmentSlot.HAND);
+                    if (!player.hasActiveItem()) throw new AssertionError("Item usage did not start");
+                    getLogger().info("GUARD_ITEM " + action);
+                } else if (action.equals("using")) {
+                    if (!player.hasActiveItem() || player.getActiveItemUsedTime() < 10) throw new AssertionError("Stable item usage missing");
+                    getLogger().info("GUARD_USING " + player.getActiveItemUsedTime());
+                } else if (action.equals("spider") || action.equals("waterwalk") || action.equals("climb") || action.equals("noweb") || action.equals("noslow") || action.equals("observe")) {
+                    var guard = (NordGuard) Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field field = NordGuard.class.getDeclaredField("policy"); field.setAccessible(true);
+                    Policy old = (Policy) field.get(guard);
+                    var modes = new EnumMap<Check, Policy.Mode>(Check.class);
+                    for (Check check : Check.values()) modes.put(check, Policy.Mode.OBSERVE);
+                    if (!action.equals("observe")) modes.put(Check.valueOf(action.toUpperCase(java.util.Locale.ROOT)), Policy.Mode.CORRECT);
+                    field.set(guard, new Policy(modes, old.buffer(), old.horizontalMargin(), old.verticalMargin(),
+                            old.burstTicks(), old.joinGrace(), old.transitionGrace(), old.maxGapNanos(), old.alertNanos(), false));
+                    getLogger().info("GUARD_MODE " + action);
                 } else if (action.equals("probe")) {
                     var at = player.getLocation(); var env = EnvironmentProbe.inspect(player, at);
                     if (!env.known() || !env.ground() || !env.clear() || env.special()) throw new AssertionError("Geometry: " + env);

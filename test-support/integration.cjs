@@ -28,6 +28,16 @@ async function marker(command, pattern) {
   return output.slice(offset).match(pattern);
 }
 function pass(label) { passed.push(label); console.log('PASS: ' + label); }
+async function completedCorrection(baseline, label) {
+  // Folia can deliver the position packet before the entity-scheduled completion runs.
+  const deadline=Date.now()+3000;
+  do {
+    const status=await marker('nordguard status',/corrections=(\d+)/);
+    if(+status[1]>baseline) return;
+    await sleep(100);
+  } while(Date.now()<deadline);
+  assert.fail(label+' must complete a NordGuard correction, not merely receive a vanilla teleport');
+}
 async function main() {
   const occupied = await new Promise(resolve => {
     const socket = net.connect({host:'127.0.0.1', port:25659});
@@ -188,6 +198,124 @@ async function main() {
   assert(+speedResult[1]-+speedBaseline[1]>=3,'Sustained speed must receive at least three NordGuard corrections');
   assert(speedTargets.every(p=>p.distanceTo(speedOrigin)<.01),'Repeated speed must not advance the saved return position');
   pass('sustained speed receives repeated NordGuard corrections');
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await marker('guardprobe observe GuardFixture',/GUARD_MODE observe/);
+  await sleep(4000);
+  const miniOrigin=bot.entity.position.clone();
+  const miniBaseline=await marker('nordguard status',/SPEED: (\d+)/);
+  for(let i=1;i<=65;i++) {
+    bot.entity.position.set(miniOrigin.x+i*.5,miniOrigin.y+(i%3===1?.1:0),miniOrigin.z);
+    bot.entity.onGround=i%3!==1;
+    const p=bot.entity.position;
+    bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:bot.entity.onGround,hasHorizontalCollision:false}});
+    await sleep(50);
+  }
+  const miniResult=await marker('nordguard status',/SPEED: (\d+)/);
+  assert(+miniResult[1]>+miniBaseline[1],'Wurst-like .5 block micro-hop speed must be detected');
+  pass('moderate micro-hop speed detected below the previous allowance');
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await marker('guardprobe observe GuardFixture',/GUARD_MODE observe/);
+  await sleep(4000);
+  const legitStart=await marker('nordguard status',/SPEED: (\d+)/);
+  const legitFlight=await marker('nordguard status',/FLIGHT: (\d+)/);
+  bot.physicsEnabled=true;
+  await bot.look(-Math.PI/2,0,true);
+  bot.setControlState('forward',true); bot.setControlState('sprint',true); bot.setControlState('jump',true);
+  await sleep(3000);
+  bot.clearControlStates();
+  await sleep(600);
+  bot.physicsEnabled=false;
+  const legitEnd=await marker('nordguard status',/SPEED: (\d+)/);
+  const legitFlightEnd=await marker('nordguard status',/FLIGHT: (\d+)/);
+  assert.equal(+legitEnd[1],+legitStart[1],'Ordinary client-physics sprint jumps must not flag speed');
+  assert.equal(+legitFlightEnd[1],+legitFlight[1],'Ordinary client-physics sprint jumps must not flag flight');
+  pass('ordinary client-physics repeated sprint jumps do not flag speed or flight');
+  for(const kind of ['climb','noweb','waterwalk']) {
+    await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+    await marker(`guardprobe terrain GuardFixture ${kind}`,new RegExp('GUARD_TERRAIN '+kind));
+    await marker('guardprobe observe GuardFixture',/GUARD_MODE observe/);
+    await sleep(4000);
+    const origin=bot.entity.position.clone();
+    const baseline=await marker('nordguard status',new RegExp(kind.toUpperCase()+': (\\d+)'));
+    for(let i=1;i<=28;i++) {
+      const dx=kind==='climb'?0:kind==='noweb'?2+i*.03:3+i*.08;
+      const dy=kind==='climb'?i*.2:kind==='waterwalk'?-.6:0;
+      bot.entity.position.set(origin.x+dx,origin.y+dy,origin.z); bot.entity.onGround=kind==='noweb';
+      const p=bot.entity.position;
+      bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:bot.entity.onGround,hasHorizontalCollision:kind==='climb'}});
+      await sleep(50);
+    }
+    const result=await marker('nordguard status',new RegExp(kind.toUpperCase()+': (\\d+)'));
+    assert.equal(+result[1],+baseline[1],kind+' normal-context movement must not flag');
+    pass(kind+' normal-context constructed movement is not flagged');
+  }
+  for(const kind of ['spider','waterwalk','climb','noweb']) {
+    await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+    await marker(`guardprobe terrain GuardFixture ${kind}`,new RegExp('GUARD_TERRAIN '+kind));
+    await marker(`guardprobe ${kind} GuardFixture`,new RegExp('GUARD_MODE '+kind));
+    await sleep(4000);
+    const origin=bot.entity.position.clone();
+    const correctionBaseline=await marker('nordguard status',/corrections=(\d+)/);
+    const checkBaseline=await marker('nordguard status',new RegExp(kind.toUpperCase()+': (\\d+)'));
+    let returned=false, height=0;
+    const listener=()=>{returned=true};
+    bot.on('forcedMove',listener);
+    for(let i=1;i<=90&&!returned;i++) {
+      const dx=kind==='waterwalk'?i*.12:kind==='noweb'?i*.25:0;
+      const dy=kind==='spider'?i*.2:kind==='climb'?i*.2872:kind==='waterwalk'&&dx>2?(i%4===0?-.05:.05):0;
+      height=Math.max(height,dy);
+      bot.entity.position.set(origin.x+dx,origin.y+dy,origin.z);
+      bot.entity.onGround=kind==='noweb';
+      const p=bot.entity.position;
+      bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:bot.entity.onGround,hasHorizontalCollision:kind==='spider'||kind==='climb'}});
+      await sleep(50);
+    }
+    bot.removeListener('forcedMove',listener);
+    await marker('guardprobe environment GuardFixture',/GUARD_ENV/);
+    assert(returned,kind+' must receive a movement correction');
+    if(kind==='spider') assert(height<=1.4,'Spider must be stopped well before four blocks');
+    const checkResult=await marker('nordguard status',new RegExp(kind.toUpperCase()+': (\\d+)'));
+    assert(+checkResult[1]>+checkBaseline[1],kind+' must add its own violation evidence');
+    await completedCorrection(+correctionBaseline[1],kind);
+    pass(kind+' detected and corrected in actual terrain'+(kind==='spider'?'; attempted height='+height.toFixed(2):''));
+  }
+  for(const action of ['item','itemcustom']) {
+    await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+    await marker('guardprobe observe GuardFixture',/GUARD_MODE observe/);
+    await sleep(4000);
+    await marker(`guardprobe ${action} GuardFixture`,new RegExp('GUARD_ITEM '+action));
+    await sleep(650);
+    await marker('guardprobe using GuardFixture',/GUARD_USING/);
+    const baseline=await marker('nordguard status',/NOSLOW: (\d+)/);
+    for(let i=0;i<25;i++) {
+      const p=bot.entity.position; p.set(p.x+(action==='item'?.05:.25),p.y,p.z);
+      bot.entity.onGround=true;
+      bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:true,hasHorizontalCollision:false}});
+      await sleep(50);
+    }
+    const result=await marker('nordguard status',/NOSLOW: (\d+)/);
+    assert.equal(+result[1],+baseline[1],action+' permitted item-use movement must not flag');
+    pass(action+' permitted server-side item-use multiplier respected');
+  }
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await marker('guardprobe noslow GuardFixture',/GUARD_MODE noslow/);
+  await sleep(4000);
+  await marker('guardprobe item GuardFixture',/GUARD_ITEM item/);
+  await sleep(650);
+  await marker('guardprobe using GuardFixture',/GUARD_USING/);
+  const useBaseline=await marker('nordguard status',/corrections=(\d+)/);
+  let useReturned=false;
+  const useListener=()=>{useReturned=true}; bot.on('forcedMove',useListener);
+  for(let i=0;i<60&&!useReturned;i++) {
+    const p=bot.entity.position; p.set(p.x+.25,p.y,p.z); bot.entity.onGround=true;
+    bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:true,hasHorizontalCollision:false}});
+    await sleep(50);
+  }
+  bot.removeListener('forcedMove',useListener);
+  assert(useReturned,'Ignoring shield slowdown must be corrected');
+  await completedCorrection(+useBaseline[1],'item-use');
+  await marker('nordguard status',/NOSLOW: [1-9]\d*/);
+  pass('ignored shield slowdown detected and corrected');
   assert(!/GUARD_PROBE_FAIL|Cannot read world asynchronously|Deferred player check after internal error/.test(output));
   pass('no region ownership errors');
 }

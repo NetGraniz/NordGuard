@@ -1,15 +1,19 @@
 # NordGuard
 
-Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.1.1 is an experimental, observation-first build, not a complete anti-cheat.
+Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.2.0 is an experimental, observation-first build, not a complete anti-cheat.
 
 ## Checks
 
 | Check | Initial scope |
 | --- | --- |
 | Flight / Hover | Sustained unsupported hovering or ascent outside a conservative movement envelope. |
-| Spider | Sustained upward movement against collision shapes after the normal ascent allowance. |
+| Spider | Repeated upward wall movement inconsistent with gravity; three evidence samples at the default buffer, without the old ascent delay. |
 | Speed | Sustained horizontal displacement above an attribute-adjusted allowance, with a bounded burst budget. |
 | HighJump / Step | Repeated excessive upward displacement or grounded step height. |
+| WaterWalk | Sustained unsupported position at a source water/lava surface, including small vertical oscillations. |
+| Climb | Repeated ascent faster than 0.24 blocks per sampled tick while the server reports climbing. |
+| NoWeb | Excess movement while the player's body intersects a cobweb; Weaving and plugin-cancelled cobweb interactions defer checks. |
+| NoSlow | Sustained excessive grounded speed during server-observed item use; reads the item's USE_EFFECTS speed multiplier. |
 | NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. |
 
 NoFall prevents avoidance of fall damage; it does not disable normal fall damage. It reconstructs a fall from sampled height and actual block support, not the client's on-ground flag. It accounts for base FALL damage already observed, so partial early damage does not exempt an entire fall. Cancellation or modification of base damage by another plugin suppresses recovery for that fall. NordGuard does not override that decision or set health directly.
@@ -22,7 +26,7 @@ The native teleport bridge reads the server-issued teleport sequence on the play
 
 Requires Java 25. Put one release JAR in `plugins` while the server is stopped. No client mod, database, packet library or external service is required. Configuration: `plugins/NordGuard/config.yml`.
 
-All five checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
+All nine checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
 
 ```yaml
 checks:
@@ -30,12 +34,22 @@ checks:
   spider: OBSERVE
   speed: OBSERVE
   highjump: OBSERVE
+  waterwalk: OBSERVE
+  climb: OBSERVE
+  noweb: OBSERVE
+  noslow: OBSERVE
   nofall: OBSERVE
 ```
 
 Each mode accepts `OFF`, `OBSERVE` or `CORRECT`. Observation records evidence without changing position or health. Correction permits movement setbacks or native NoFall damage. A setback needs a previous clean supported position that remains loaded, region-owned and clear; otherwise the plugin reports without forcing a teleport.
 
-`movement.violation-buffer` controls accumulated movement evidence. Horizontal and vertical margins are tolerances in blocks per sample, not universal speed limits. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are conservative starting points, not calibrated guarantees.
+`movement.violation-buffer` controls accumulated movement evidence. Spider uses at most three evidence samples; WaterWalk uses at least ten to allow brief surface crossings. `horizontal-margin` is added once to the speed burst budget, not to every tick's speed allowance. `vertical-margin` remains a vertical tolerance; Spider scales it when comparing gravity deceleration. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are starting points, not calibrated guarantees.
+
+Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
+
+Existing schema-version 1 configurations remain readable. Missing `waterwalk`, `climb`, `noweb` and `noslow` modes default to OBSERVE; the plugin does not silently enable corrections or overwrite your settings. Add those four entries explicitly when selecting their modes. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
+
+NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Quick use/release loops and item-use packet ordering are not covered. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
 
 Join and transition grace values use player scheduler ticks. Long sampling gaps clear history. Accepted velocity events briefly reset history and add a capped, decaying impulse allowance. Unrecognized or special environments defer checks.
 
@@ -81,8 +95,8 @@ Output is throttled per player and check. Violation counters count samples, not 
 ## Coverage limits
 
 - Tick-sampled protection is not full packet-order validation or a complete physics simulator. Actions between samples can be missed.
-- Creative, Spectator, authorized flight, vehicles, gliding, riptide, climbing, levitation and slow falling are outside the initial model. Elytra-speed and vehicle cheats are not covered.
-- Liquids, waterlogged blocks, ice, slime, honey, beds, hay, webs, powder snow, berry bushes, scaffolding, soul sand and nearby pistons conservatively defer checks. These exemptions leave gaps.
+- Creative, Spectator, authorized flight, vehicles, gliding, riptide, levitation and slow falling remain outside the model. Elytra-speed and vehicle cheats are not covered.
+- Swimming/submerged movement, flowing liquids, waterlogged blocks, ice, slime, honey, beds, hay, powder snow, berry bushes, scaffolding, soul sand and nearby pistons conservatively defer checks. These exemptions leave gaps. Source liquid surfaces, climbing and cobwebs now have separate checks instead of a blanket exemption.
 - NoFall covers observed falls on ordinary supported terrain. Mid-tick rescue mechanics, damage cooldowns, plugin modifications and incomplete event history affect evidence. Correction remains experimental.
 - HighJump/Step targets repeated violations, not every isolated jump. Fine speed advantages, collision phasing and arbitrary client timing are not fully covered.
 - Combat, Reach, Kill Aura, FastBreak, Nuker, authentication and ore obfuscation are not included.
@@ -90,13 +104,15 @@ Output is throttled per player and check. Violation counters count samples, not 
 
 Target deployment: 600 players. That capacity is not validated. Bounded work and small state are design choices, not a measured TPS guarantee.
 
+See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented behaviors, partial coverage and missing modules. Listing a client feature there does not mean it is blocked.
+
 ## Build and tests
 
 ```text
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.1.1.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.2.0.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

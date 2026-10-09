@@ -5,10 +5,15 @@ checks:
   spider: OBSERVE
   speed: OBSERVE
   highjump: OBSERVE
+  waterwalk: OBSERVE
+  climb: OBSERVE
+  noweb: OBSERVE
+  noslow: OBSERVE
   nofall: OBSERVE
 # Conservative starting values, not proof of coverage or capacity.
 movement:
   violation-buffer: 6
+  # Horizontal margin is a one-time burst budget, NOT added to every tick.
   horizontal-margin: 0.12
   vertical-margin: 0.16
   burst-ticks: 5

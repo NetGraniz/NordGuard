@@ -105,6 +105,15 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
     }
     @EventHandler(priority = EventPriority.MONITOR)
+    public void inside(io.papermc.paper.event.entity.EntityInsideBlockEvent event) {
+        // Respect plugins that deliberately disable cobweb slowdown.
+        if (event.isCancelled() && event.getBlock().getType() == org.bukkit.Material.COBWEB
+                && event.getEntity() instanceof Player player) {
+            Session session = sessions.get(player.getUniqueId());
+            if (session != null) session.suspend(3);
+        }
+    }
+    @EventHandler(priority = EventPriority.MONITOR)
     public void damage(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
         Session session = sessions.get(player.getUniqueId());
@@ -232,7 +241,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (player.isDead() || player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR
                     || player.hasPermission("nordguard.bypass") || player.getAllowFlight() || player.isFlying()
                     || player.isInsideVehicle() || player.isGliding() || player.isRiptiding()
-                    || player.isInWater() || player.isClimbing() || !player.hasGravity()
+                    || !player.hasGravity()
                     || player.hasPotionEffect(PotionEffectType.LEVITATION)
                     || player.hasPotionEffect(PotionEffectType.SLOW_FALLING)) {
                 suspend(3); skipped.increment(); return;
@@ -243,7 +252,15 @@ public final class NordGuard extends JavaPlugin implements Listener {
             boolean stationary = last != null && at.distanceSquared(last) < 1.0E-10;
             if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) return;
             var environment = EnvironmentProbe.inspect(player, at);
-            if (!environment.known() || environment.special()) { suspend(3); skipped.increment(); return; }
+            // Use feet geometry, not a claimed swimming pose, to classify a liquid surface.
+            boolean surface = environment.liquidSurface();
+            if (!environment.known() || environment.special()
+                    || (environment.liquid() || player.isInWater()) && !surface
+                    || environment.web() && player.hasPotionEffect(PotionEffectType.WEAVING)) {
+                suspend(3); skipped.increment(); return;
+            }
+            boolean climbing = player.isClimbing();
+            if (surface || climbing || environment.web()) { pendingFall = 0; airborne = false; }
             if (pendingFall > 0 && --pendingTicks <= 0) {
                 double distance = pendingFall; pendingFall = 0;
                 if (fallOverrides == pendingOverrides
@@ -261,16 +278,21 @@ public final class NordGuard extends JavaPlugin implements Listener {
                     }
                 }
             }
-            double speed = Math.max(.1, attribute(player, Attribute.MOVEMENT_SPEED, .1)) * 3.9;
+            double speed = Math.max(.1, attribute(player, Attribute.MOVEMENT_SPEED, .1)) * 2.2;
             speed *= Math.max(1, player.getWalkSpeed() / .2);
             speed += impulseSpeed;
             double jump = attribute(player, Attribute.JUMP_STRENGTH, .42);
             var jumpEffect = player.getPotionEffect(PotionEffectType.JUMP_BOOST);
             if (jumpEffect != null) jump += .1 * (jumpEffect.getAmplifier() + 1);
             jump = Math.max(jump, impulseY);
+            double useMultiplier = 1;
+            if (player.hasActiveItem() && player.getActiveItemUsedTime() >= 10 && impulseSpeed < .03) {
+                var effects = player.getActiveItem().getData(io.papermc.paper.datacomponent.DataComponentTypes.USE_EFFECTS);
+                useMultiplier = effects == null ? .2 : effects.speedMultiplier();
+            }
             var result = model.accept(new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
                     environment.wall(), false, speed, jump, attribute(player, Attribute.STEP_HEIGHT, .6),
-                    attribute(player, Attribute.GRAVITY, .08)), current);
+                    attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier), current);
             if (!environment.ground() && !airborne) {
                 fallBaseline = fallEvents; rawBaseline = fallRawDamage; overrideBaseline = fallOverrides;
             }

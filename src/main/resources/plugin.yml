@@ -1,5 +1,5 @@
 name: NordGuard
-version: 0.1.1
+version: 0.2.0
 main: dev.nordfjell.guard.NordGuard
 api-version: '26.2'
 folia-supported: true
