@@ -80,6 +80,8 @@ async function main() {
   await sleep(4000);
   await marker('guardprobe probe GuardFixture',/GUARD_GEOMETRY_PASS/); pass('actual block-shape support and body clearance');
   await marker('guardprobe permissions GuardFixture',/GUARD_PERMISSIONS_PASS/); pass('ordinary account has no admin, alerts or bypass');
+  await marker('nordguard inspect GuardFixture',/Replica disabled/);pass('world cache disabled by default');
+  await marker('guardprobe collisionnative GuardFixture',/GUARD_COLLISION_NATIVE_DONE/);pass('1000 native differential axis-clipping cases');
   await marker('nordguard status',/sessions=1/); pass('player scheduler active');
   const packetState=await marker('nordguard inspect GuardFixture',/Barrier RTT ms=(\d+), acks=([1-9]\d*)/);
   assert(+packetState[2]>0);pass('native channel installation and real Ping/Pong acknowledgement');
@@ -87,6 +89,14 @@ async function main() {
   bot._client.write('tick_end',{});
   await sleep(150);
   await marker('nordguard inspect GuardFixture',/client ticks=[1-9]\d*/);pass('native client TickEnd observation');
+  fs.writeFileSync(configPath,originalConfig.replace('world-replica: false','world-replica: true'));
+  await marker('nordguard reload',/configuration reloaded/);await sleep(600);
+  await marker('guardprobe replicanative GuardFixture',/GUARD_REPLICA_NATIVE_DONE/);pass('native chunk, block and section capture and static geometry');
+  await marker('guardprobe replicaresend GuardFixture',/GUARD_REPLICA_RESENT/);await sleep(1000);
+  await marker('guardprobe replicacaptured GuardFixture',/GUARD_REPLICA_CAPTURED/);pass('actual outbound chunk captured through channel and owner queue');
+  await marker('nordguard inspect GuardFixture',/Replica chunks=[1-9]\d*, bytes=[1-9]\d*, decoded=[1-9]\d*/);pass('replica diagnostics report bounded data');
+  fs.writeFileSync(configPath,originalConfig);await marker('nordguard reload',/configuration reloaded/);await sleep(600);
+  await marker('nordguard inspect GuardFixture',/Replica disabled/);pass('opt-in cache reload releases session cache');
   if(!process.env.NORD_GUARD_ACTIONS_ONLY) {
   await marker('guardprobe fall GuardFixture',/GUARD_NATIVE_PASS fall/); pass('native fall damage and FALL event');
   await marker('guardprobe cancel GuardFixture',/GUARD_NATIVE_PASS cancel/); pass('cancelled FALL event preserves health');

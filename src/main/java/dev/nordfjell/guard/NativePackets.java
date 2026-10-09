@@ -20,13 +20,17 @@ import org.bukkit.entity.Player;
 final class NativePackets {
     static final int MOVE=1, TICK_END=2, INPUT=3, TELEPORT=4, TELEPORT_ACK=5,
             VELOCITY=6, PONG=7, WORLD_CHANGE=8, CONTEXT_CHANGE=9, CLOSED=10,
-            BARRIER_SENT=11, ATTACHED=12;
+            BARRIER_SENT=11, ATTACHED=12, WORLD_DATA=13;
     private static final String GAME="net.minecraft.network.protocol.game.";
     private static final String COMMON="net.minecraft.network.protocol.common.";
     private static final MethodHandles.Lookup LOOKUP=MethodHandles.publicLookup();
     @FunctionalInterface interface Sink {
         void event(int kind,long nano,int id,int flags,double x,double y,double z,float yaw,float pitch);
+        default boolean reserveWorldCopy(int bytes) { return false; }
+        default boolean worldEnabled() { return false; }
+        default void world(WorldSnapshot.Update update) {}
     }
+    private final NativeWorld world;
     private final Class<?> move, tickEnd, input, teleport, teleportAck, velocity, pong, bundle, ping;
     private final MethodHandle handle, listenerConnection, networkConnection, channel;
     private final MethodHandle hasPos, hasRot, onGround, collision, x, y, z, yaw, pitch;
@@ -44,6 +48,7 @@ final class NativePackets {
         return new NativePackets();
     }
     private NativePackets() throws ReflectiveOperationException {
+        world=NativeWorld.bind();
         Class<?> craft=type("org.bukkit.craftbukkit.entity.CraftPlayer");
         Class<?> serverPlayer=type("net.minecraft.server.level.ServerPlayer");
         Class<?> listener=type("net.minecraft.server.network.ServerCommonPacketListenerImpl");
@@ -130,7 +135,8 @@ final class NativePackets {
             Object listener=listenerConnection.invokeExact(nativePlayer);
             Object connection=networkConnection.invokeExact(listener);
             Channel transport=(Channel)(Object)channel.invokeExact(connection);
-            Handle result=new Handle(transport,player.getEntityId(),sink);
+            var at=player.getLocation();
+            Handle result=new Handle(transport,player.getEntityId(),sink,at.getX(),at.getZ());
             transport.eventLoop().execute(result::install);
             return result;
         } catch(Throwable failure) { throw new ReflectiveOperationException("Cannot attach 26.2 packet observer",failure); }
@@ -145,6 +151,11 @@ final class NativePackets {
         private final Channel transport;
         private final int entityId;
         private final Sink sink;
+        private final java.util.function.IntPredicate copyBudget;
+        private final NativeWorld.ChunkInterest chunkInterest;
+        private final boolean worldEnabled;
+        private double positionX,positionZ;
+        private int centerX,centerZ;
         private final String name="nordguard_observer";
         private final Observer observer=new Observer(this);
         private volatile boolean closing;
@@ -153,8 +164,17 @@ final class NativePackets {
         private final int[] foreignPingIds = new int[8];
         private int foreignPingCount, foreignPingCursor;
         private boolean closedReported;
-        Handle(Channel transport,int entityId,Sink sink) {
-            this.transport=transport;this.entityId=entityId;this.sink=sink;
+        Handle(Channel transport,int entityId,Sink sink,double x,double z) {
+            this.transport=transport;this.entityId=entityId;this.sink=sink;this.copyBudget=sink::reserveWorldCopy;
+            worldEnabled=sink.worldEnabled();
+            positionX=x;positionZ=z;centerX=((int)Math.floor(x))>>4;centerZ=((int)Math.floor(z))>>4;
+            chunkInterest=(cx,cz)->Math.abs((long)cx-centerX)<=1 && Math.abs((long)cz-centerZ)<=1;
+        }
+        private void center(double x,double z) {
+            if(!Double.isFinite(x)||!Double.isFinite(z)||Math.abs(x)>32_000_000||Math.abs(z)>32_000_000)return;
+            int cx=((int)Math.floor(x))>>4,cz=((int)Math.floor(z))>>4;
+            positionX=x;positionZ=z;
+            if(cx!=centerX||cz!=centerZ) {centerX=cx;centerZ=cz;if(worldEnabled)sink.world(new WorldSnapshot.Retain(cx,cz));}
         }
         boolean active() { return installed && !closing && !failed; }
         private void emit(int kind,int id,int flags,double x,double y,double z,float yaw,float pitch) {
@@ -224,8 +244,10 @@ final class NativePackets {
         if(move.isInstance(packet)) {
             int flags=((boolean)hasPos.invokeExact(packet)?1:0)|((boolean)hasRot.invokeExact(packet)?2:0)
                     |((boolean)onGround.invokeExact(packet)?4:0)|((boolean)collision.invokeExact(packet)?8:0);
-            h.emit(MOVE,0,flags,(double)x.invokeExact(packet,Double.NaN),(double)y.invokeExact(packet,Double.NaN),
-                    (double)z.invokeExact(packet,Double.NaN),(float)yaw.invokeExact(packet,Float.NaN),(float)pitch.invokeExact(packet,Float.NaN));
+            double px=(double)x.invokeExact(packet,Double.NaN),pz=(double)z.invokeExact(packet,Double.NaN);
+            if((flags&1)!=0)h.center(px,pz);
+            h.emit(MOVE,0,flags,px,(double)y.invokeExact(packet,Double.NaN),pz,
+                    (float)yaw.invokeExact(packet,Float.NaN),(float)pitch.invokeExact(packet,Float.NaN));
         } else if(tickEnd.isInstance(packet)) h.marker(TICK_END,0);
         else if(input.isInstance(packet)) {
             Object keys=inputValue.invokeExact(packet);int flags=0;
@@ -239,6 +261,7 @@ final class NativePackets {
             Iterable<?> packets=(Iterable<?>)(Object)subPackets.invokeExact(packet);int count=0;
             for(Object child:packets) {
                 if(++count>64 || bundle.isInstance(child)) {
+                    if(h.worldEnabled)h.sink.world(new WorldSnapshot.Invalidation());
                     h.marker(WORLD_CHANGE,0);h.marker(CONTEXT_CHANGE,0);break;
                 }
                 outboundSingle(h,child);
@@ -246,6 +269,12 @@ final class NativePackets {
         } else outboundSingle(h,packet);
     }
     private void outboundSingle(Handle h,Object packet) throws Throwable {
+        WorldSnapshot.Update update=h.worldEnabled?world.read(packet,h.copyBudget,h.chunkInterest):null;
+        if(update!=null) {
+            h.marker(WORLD_CHANGE,0);
+            h.sink.world(update);
+            return;
+        }
         if(ping.isInstance(packet)) {
             if(packet!=h.ownPing) {
                 int id=(int)pingId.invokeExact(packet);
@@ -258,8 +287,12 @@ final class NativePackets {
             Object change=teleportChange.invokeExact(packet);
             Object pos=position.invokeExact(change);
             Set<?> relative=(Set<?>)(Object)teleportRelatives.invokeExact(packet);
+            double px=(double)vecX.invokeExact(pos),pz=(double)vecZ.invokeExact(pos);
+            boolean relativeX=false,relativeZ=false;
+            for(Object flag:relative) {String name=((Enum<?>)flag).name();relativeX|=name.equals("X");relativeZ|=name.equals("Z");}
+            h.center(relativeX?h.positionX+px:px,relativeZ?h.positionZ+pz:pz);
             h.emit(TELEPORT,(int)teleportId.invokeExact(packet),relative.isEmpty()?0:1,
-                    (double)vecX.invokeExact(pos),(double)vecY.invokeExact(pos),(double)vecZ.invokeExact(pos),
+                    px,(double)vecY.invokeExact(pos),pz,
                     (float)rotationY.invokeExact(change),(float)rotationX.invokeExact(change));
         } else if(velocity.isInstance(packet)) {
             int id=(int)velocityId.invokeExact(packet);

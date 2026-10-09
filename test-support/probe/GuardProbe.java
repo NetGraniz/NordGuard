@@ -36,7 +36,19 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if (action.equals("disableguard")) {
+                if(action.equals("replicanative")) {
+                    ReplicaNativeProbe.run((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,name->getLogger().info("GUARD_ACTION_PASS "+name));
+                    getLogger().info("GUARD_REPLICA_NATIVE_DONE");
+                } else if(action.equals("replicaresend")) {
+                    ReplicaNativeProbe.resend((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player);
+                    getLogger().info("GUARD_REPLICA_RESENT");
+                } else if(action.equals("replicacaptured")) {
+                    ReplicaNativeProbe.verifyCaptured((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,name->getLogger().info("GUARD_ACTION_PASS "+name));
+                    getLogger().info("GUARD_REPLICA_CAPTURED");
+                } else if(action.equals("collisionnative")) {
+                    CollisionNativeProbe.run((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),name->getLogger().info("GUARD_ACTION_PASS "+name));
+                    getLogger().info("GUARD_COLLISION_NATIVE_DONE");
+                } else if (action.equals("disableguard")) {
                     Object nativePlayer=player.getClass().getMethod("getHandle").invoke(player);
                     Object listener=nativePlayer.getClass().getField("connection").get(nativePlayer);
                     Object network=listener.getClass().getField("connection").get(listener);

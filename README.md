@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.4.0 adds an experimental packet timeline. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.1 adds an opt-in outbound block cache and a standalone collision predictor. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
 
 ## Checks
 
@@ -110,7 +110,7 @@ Temporary history resets keep the last clean supported return position. The firs
 
 Uses standard Bukkit permissions, including NordPerms. Administration does not grant a bypass. Non-OP moderators need explicit grants. No player identities belong in the repository.
 
-## Packet foundation (0.4.0)
+## Packet and physics foundation
 
 `packets.enabled: true` installs a transparent, version-pinned channel observer. It retains primitives, not Minecraft packet objects, and never reads Bukkit worlds or players from a network callback. Each player has a 256-event inbox and a 64-movement history. The existing entity-scheduler task drains at most 128 entries per tick. Overflow discards the whole uncertain queued prefix over bounded drains; existing movement and action checks keep running.
 
@@ -120,9 +120,13 @@ The timeline observes movement variants, persistent input, client TickEnd, self 
 
 An acknowledged stream prefix does **not** reconstruct the client's world or prove that a modified client obeyed a packet. No packet-based correction is enabled in this build. Reach history and existing movement checks retain their previous behavior; this timeline does not silently replace them with complete latency compensation.
 
-`OrdinaryPhysics` separately implements the verified 26.2 free-space arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. It is unit tested but not wired into enforcement. Collision shapes, step-up, client-world replication, ambiguous in-flight state and candidate selection still need implementation and differential validation before it can become a movement predictor. Fluids, climbing, vehicles and special movement are outside this kernel's contract.
+`OrdinaryPhysics` implements the verified 26.2 arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. `CollisionPhysics` clips bounded AABB scenes and handles step-up. `OrdinaryPredictor` keeps calculated position and velocity; it never resets velocity from an unchecked observed move. It tries 18 input variants per state and retains at most two plausible states (36 trials), because walking and jumping onto a slab can produce the same coordinates with different grounded states. Excess ambiguity, unsupported collisions or missing scene data defer the calculation rather than count a violation. These standalone kernels are tested but **not wired into runtime enforcement**. Fluids, climbing, vehicles, entity pushes, world borders, crouch-edge behavior and special movement remain outside their contract.
 
-Packet collection can be disabled and re-enabled with configuration reload. Observer failures disable diagnostics for the affected session without suspending the existing checks. Quit, retired sessions and plugin disable remove only their own channel handler. Diagnostic output is requested by an administrator; there is no automatic per-packet logging or disk I/O. History and barrier storage use 15,696 bytes of primitive-array payload per session, excluding object headers, native channel state and shared bindings.
+`packets.world-replica: false` leaves the new block cache off. Enabling it captures detached copies of outbound chunk, single-block and section-block data within one chunk of the observed player chunk. It never reads live worlds from a channel callback. Missing, forgotten, evicted or uncertain data remain unknown, not air. Block events invalidate the cache instead of attempting to simulate piston movement. The cache represents the observed outbound stream, not a Pong-acknowledged historical client world; packets already sent before attachment and chunks first sent outside the tracked area can remain unknown until resent.
+
+The opt-in cache retains at most 16 chunks and 512 KiB of accounted cache data per player, plus at most 16 queued world updates and 512 KiB of accounted queued data. Decoding handles at most one chunk per scheduler drain, preserving FIFO order. Global budgets allow up to 8 MiB/s of payload capture, 4 MiB/s of chunk decoding and 1,000,000 section-materialization cells/s in 50 ms windows. Budget exhaustion forgets affected knowledge. Those limits account for payload/arrays, not total heap use, object headers, temporary allocations or CPU time. They are not evidence of capacity at 600 players.
+
+Packet collection and the opt-in cache can be disabled and re-enabled with configuration reload. Observer failures disable diagnostics for the affected session without suspending the existing checks. Quit, retired sessions and plugin disable remove only their own channel handler. Diagnostic output is requested by an administrator; there is no automatic per-packet logging or disk I/O. History and barrier storage use 15,696 bytes of primitive-array payload per session, plus a 256-slot payload-reference array; object headers, native channel state and shared bindings are additional. No prediction work or block copying runs with the cache disabled.
 
 If NordCommands filters available commands, add `nordguard` to its allowed command labels. NordGuard still requires its own administration permission; making the label visible does not grant access.
 

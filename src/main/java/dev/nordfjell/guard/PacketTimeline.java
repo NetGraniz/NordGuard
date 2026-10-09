@@ -2,7 +2,7 @@ package dev.nordfjell.guard;
 
 import java.util.Locale;
 
-/** Entity-owner only. An acknowledged outbound prefix is NOT a replicated client world. */
+/** Entity-owner only. Acknowledgement is not evidence that the client obeyed the state. */
 final class PacketTimeline {
     static final long TIMEOUT = 5_000_000_000L;
     static final int HISTORY = 64, MAX_DRAIN = 128;
@@ -19,10 +19,14 @@ final class PacketTimeline {
     private boolean attached, awaitingTeleport, positioned, discarding;
     private double x, y, z, velocityX, velocityY, velocityZ, tickCredit = 40;
     private String reason = "joining";
+    private final java.util.function.Consumer<WorldSnapshot.Update> worldSink;
+    PacketTimeline() {this(update -> {});}
+    PacketTimeline(java.util.function.Consumer<WorldSnapshot.Update> worldSink) {this.worldSink=worldSink;}
 
     int drain(PacketInbox inbox, long now) {
         if (inbox.dropped() != dropped) {
             dropped = inbox.dropped(); invalidate("inbox overflow");
+            worldSink.accept(new WorldSnapshot.Invalidation());
             discarding = true;
         }
         if (discarding) {
@@ -31,14 +35,20 @@ final class PacketTimeline {
             if (inbox.size() == 0) discarding = false;
             reason = "inbox overflow"; return count;
         }
-        int count = 0;
-        while (count < MAX_DRAIN && inbox.poll(cursor)) { accept(cursor); count++; }
+        int count = 0, chunks = 0;
+        while (count < MAX_DRAIN) {
+            if(inbox.nextIsEncodedChunk() && chunks>=1) break;
+            if(!inbox.poll(cursor))break;
+            if(cursor.payload instanceof WorldSnapshot.EncodedChunk)chunks++;
+            accept(cursor);count++;
+        }
         expire(now);
         return count;
     }
 
     void accept(PacketInbox.Cursor p) {
         events++;
+        if(p.kind==NativePackets.WORLD_DATA) {worldSink.accept(p.payload);return;}
         if (p.kind == NativePackets.ATTACHED) { attached = true; reason = "awaiting barrier"; }
         else if (p.kind == NativePackets.CLOSED) { attached = false; invalidate("observer unavailable"); }
         else if (p.kind == NativePackets.WORLD_CHANGE || p.kind == NativePackets.CONTEXT_CHANGE) invalidate("outbound state changed");
@@ -58,7 +68,7 @@ final class PacketTimeline {
             System.arraycopy(pingIds, 1, pingIds, 0, --pending);
             System.arraycopy(pingNanos, 1, pingNanos, 0, pending);
             System.arraycopy(pingRevisions, 1, pingRevisions, 0, pending);
-            reason = acknowledgedRevision == revision ? "prefix acknowledged (no world replica)" : "newer state pending";
+            reason = acknowledgedRevision == revision ? "prefix acknowledged (not physics validation)" : "newer state pending";
         } else if (p.kind == NativePackets.TELEPORT) {
             teleports++;
             invalidate("teleport pending"); teleportId = p.id; awaitingTeleport = true;

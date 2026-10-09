@@ -6,6 +6,32 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class PacketTimelineTest {
+    @Test void worldDataMaintainsFifoAndAtMostOneChunkPerDrain() {
+        var q=new PacketInbox(bytes->true);var seen=new java.util.ArrayList<WorldSnapshot.Update>();
+        var t=new PacketTimeline(seen::add);
+        var a=new WorldSnapshot.EncodedChunk(0,0,new byte[]{1});
+        var b=new WorldSnapshot.EncodedChunk(1,0,new byte[]{2});
+        var block=new WorldSnapshot.Blocks(new int[]{0,80,0,2});
+        q.world(a);q.world(block);q.world(b);q.event(NativePackets.INPUT,1,0,7,0,0,0,0,0);
+        assertEquals(2,t.drain(q,100));assertEquals(java.util.List.of(a,block),seen);assertEquals(0,t.input());
+        assertEquals(2,t.drain(q,200));assertEquals(java.util.List.of(a,block,b),seen);assertEquals(7,t.input());
+    }
+    @Test void worldEventLimitAndCopyBudgetPreventUnboundedBacklog() {
+        var q=new PacketInbox(bytes->true);assertTrue(q.worldEnabled());assertFalse(new PacketInbox().worldEnabled());
+        for(int i=0;i<16;i++)q.world(new WorldSnapshot.Forget(i,0));
+        assertFalse(q.reserveWorldCopy(48));q.world(new WorldSnapshot.Reset());assertEquals(1,q.dropped());
+        var c=new PacketInbox.Cursor();for(int i=0;i<16;i++)assertTrue(q.poll(c));
+        assertTrue(q.reserveWorldCopy(512*1024));assertFalse(q.reserveWorldCopy(512*1024+1));
+        var denied=new PacketInbox(bytes->false);assertFalse(denied.reserveWorldCopy(48));
+    }
+    @Test void queueOverflowInvalidatesWorldBeforeDiscardingEntirePrefix() {
+        var q=new PacketInbox(bytes->true);var seen=new java.util.ArrayList<WorldSnapshot.Update>();
+        var t=new PacketTimeline(seen::add);q.world(new WorldSnapshot.Forget(0,0));
+        for(int i=0;i<300;i++)q.event(NativePackets.MOVE,i,0,1,i,80,0,0,0);
+        assertEquals(128,t.drain(q,1000));assertEquals(1,seen.size());
+        assertInstanceOf(WorldSnapshot.Invalidation.class,seen.getFirst());
+        assertEquals(128,t.drain(q,1001));assertEquals(0,t.historySize());assertEquals(1,seen.size());
+    }
     private static PacketInbox.Cursor event(int kind, long time, int id) {
         var c = new PacketInbox.Cursor(); c.kind = kind; c.nano = time; c.id = id; return c;
     }

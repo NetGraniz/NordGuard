@@ -42,8 +42,11 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private NativeTeleport nativeTeleport;
     private NativePackets packets;
     private volatile boolean packetsEnabled;
+    private volatile boolean replicaEnabled;
     private volatile boolean shuttingDown;
     private final LongAdder packetEvents = new LongAdder(), packetDrainNanos = new LongAdder();
+    private final SpatialBudget worldCopyBudget=new SpatialBudget(), worldDecodeBudget=new SpatialBudget(), worldMaterializeBudget=new SpatialBudget();
+    private NativeBlocks blockGeometry;
     private ActionGuard actions;
     private final SpatialBudget spatialBudget=new SpatialBudget();
     private final SpatialBudget alertBudget=new SpatialBudget();
@@ -77,15 +80,18 @@ public final class NordGuard extends JavaPlugin implements Listener {
             nativeFall = new NativeFall();
             nativeTeleport = new NativeTeleport();
             packetsEnabled = readPacketsEnabled();
+            replicaEnabled = readReplicaEnabled();
         } catch (Exception error) {
             getLogger().log(java.util.logging.Level.SEVERE, "NordGuard cannot start safely", error);
             Bukkit.getPluginManager().disablePlugin(this);
             return;
         }
-        try { packets = NativePackets.bind(); }
+        try { packets=NativePackets.bind(); }
         catch (ReflectiveOperationException | LinkageError error) {
             getLogger().log(java.util.logging.Level.WARNING, "Packet diagnostics unavailable; existing checks remain active", error);
         }
+        if(replicaEnabled) try { blockGeometry=NativeBlocks.bind(); }
+        catch(ReflectiveOperationException error) {replicaEnabled=false;getLogger().log(java.util.logging.Level.WARNING,"Replica diagnostics unavailable; existing checks remain active",error);}
         Bukkit.getPluginManager().registerEvents(this, this);
         actions=new ActionGuard(this);
         Bukkit.getPluginManager().registerEvents(actions,this);
@@ -116,10 +122,18 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Session previous = sessions.putIfAbsent(player.getUniqueId(), session);
         if (previous != null) return;
         if (shuttingDown) { session.stop(); sessions.remove(player.getUniqueId(),session); return; }
+        // Install before the first scheduled sample so initial chunk packets can be observed.
+        session.observePackets(System.nanoTime());
         session.task = player.getScheduler().runAtFixedRate(this, ignored -> session.tick(),
                 () -> {session.stop();if(sessions.remove(player.getUniqueId(),session)&&actions!=null) actions.remove(player);}, 1, 1);
         if (session.stopped || shuttingDown) session.stop();
-        if (session.task == null) sessions.remove(player.getUniqueId(), session);
+        if (session.task == null) { session.stop(); sessions.remove(player.getUniqueId(), session); }
+    }
+    private boolean readReplicaEnabled() throws Exception {
+        var yaml=new YamlConfiguration();yaml.load(new java.io.File(getDataFolder(),"config.yml"));
+        Object enabled=yaml.get("packets.world-replica",Boolean.FALSE);
+        if(!(enabled instanceof Boolean value))throw new IllegalArgumentException("packets.world-replica must be boolean");
+        return value;
     }
     @EventHandler(priority = EventPriority.MONITOR) public void join(PlayerJoinEvent event) { attach(event.getPlayer()); }
     @EventHandler(priority = EventPriority.MONITOR) public void quit(PlayerQuitEvent event) {
@@ -212,10 +226,18 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 Session session = sessions.get(target.getUniqueId());
                 String[] detail = session == null || session.timeline == null
                         ? new String[]{"Packet observer is not attached."} : session.timeline.diagnostic();
+                if(session!=null && session.timeline!=null) {
+                    detail=Arrays.copyOf(detail,detail.length+1);
+                    ClientWorld world=session.clientWorld;
+                    detail[detail.length-1]=world==null?"Replica disabled (diagnostic only)."
+                            :"Replica chunks="+world.size()+", bytes="+world.bytes()+", decoded="+world.decoded()
+                            +", invalidated="+world.invalidated()+", evicted="+world.evicted()+" (diagnostic only).";
+                }
+                final String[] response=detail;
                 if (sender instanceof Player receiver) receiver.getScheduler().run(this, ignored -> {
-                    if (receiver.hasPermission("nordguard.admin")) receiver.sendMessage(detail);
+                    if (receiver.hasPermission("nordguard.admin")) receiver.sendMessage(response);
                 }, null);
-                else sender.sendMessage(detail);
+                else sender.sendMessage(response);
             }, null);
             return true;
         }
@@ -236,7 +258,12 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 for (Check check : Check.values()) sender.sendMessage(check + ": " + violations[check.ordinal()].sum());
             }
             case "reload" -> {
-                try { Policy next = readPolicy(); boolean enabled = readPacketsEnabled(); policy = next; packetsEnabled = enabled; sender.sendMessage("NordGuard configuration reloaded; histories reset on next sample."); }
+                try {
+                    Policy next=readPolicy();boolean enabled=readPacketsEnabled(),replica=readReplicaEnabled();
+                    if(replica && blockGeometry==null)blockGeometry=NativeBlocks.bind();
+                    policy=next;replicaEnabled=replica;packetsEnabled=enabled;
+                    sender.sendMessage("NordGuard configuration reloaded; histories reset on next sample.");
+                }
                 catch (Exception error) { sender.sendMessage("Reload rejected; previous policy kept: " + error.getMessage()); }
             }
             case "alerts" -> {
@@ -268,7 +295,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
         volatile NativePackets.Handle packetHandle;
         PacketInbox inbox;
         PacketTimeline timeline;
+        ClientWorld clientWorld;
         boolean packetAttachFailed;
+        boolean seenReplica;
+        final java.util.function.IntPredicate materializeBudget=cells->worldMaterializeBudget.acquire(System.nanoTime(),cells,1_000_000);
         Policy seenPolicy;
         Location last, safe, setbackTarget;
         long originRevision;
@@ -290,11 +320,29 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
         void packetTick(long now) {
             if (!packetsEnabled || packets == null) {
-                closePackets(); packetHandle = null; inbox = null; timeline = null; return;
+                closePackets(); packetHandle = null; inbox = null; timeline = null; clientWorld=null;return;
             }
             if (packetAttachFailed) return;
+            if(packetHandle!=null && seenReplica!=replicaEnabled) {
+                closePackets();packetHandle=null;inbox=null;timeline=null;clientWorld=null;
+                // Removal and installation use the same channel event loop, in order.
+            }
             if (packetHandle == null) {
-                inbox = new PacketInbox(); timeline = new PacketTimeline();
+                seenReplica=replicaEnabled;
+                clientWorld=seenReplica?new ClientWorld():null;
+                inbox = seenReplica?new PacketInbox(bytes -> worldCopyBudget.acquire(System.nanoTime(),bytes,8*1024*1024)):new PacketInbox();
+                timeline = new PacketTimeline(update -> {
+                    if(clientWorld==null)return;
+                    int min=player.getWorld().getMinHeight()>>4;
+                    int sections=(player.getWorld().getMaxHeight()-player.getWorld().getMinHeight())>>4;
+                    if(update instanceof WorldSnapshot.EncodedChunk encoded
+                            && !worldDecodeBudget.acquire(System.nanoTime(),encoded.estimatedBytes(),4*1024*1024)) {
+                        clientWorld.apply(new WorldSnapshot.Forget(encoded.x(),encoded.z()),sections,min);
+                        timeline.invalidate("replica decode budget");return;
+                    }
+                    try {clientWorld.apply(update,sections,min,materializeBudget);}
+                    catch(IllegalArgumentException error) {clientWorld.clear();timeline.invalidate("unsupported chunk data");}
+                });
                 try { packetHandle = packets.attach(player, inbox); }
                 catch (ReflectiveOperationException error) {
                     packetAttachFailed = true;
@@ -304,13 +352,22 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 if (stopped || shuttingDown) { closePackets(); return; }
             }
             long started = System.nanoTime();
+            long droppedBefore=inbox.dropped();
             packetEvents.add(timeline.drain(inbox, now));
+            if(inbox.dropped()!=droppedBefore && clientWorld!=null)clientWorld.clear();
             timeline.transportActive(packetHandle.active());
             if (timeline.shouldProbe(now)) {
                 timeline.probeQueued(now);
                 packets.probe(packetHandle, java.util.concurrent.ThreadLocalRandom.current().nextInt());
             }
             packetDrainNanos.add(System.nanoTime() - started);
+        }
+        void observePackets(long now) {
+            try { packetTick(now); }
+            catch(RuntimeException | LinkageError error) {
+                packetAttachFailed=true;closePackets();
+                getLogger().log(java.util.logging.Level.WARNING,"Packet diagnostics disabled for session; existing checks continue",error);
+            }
         }
         void suspend(int ticks) {
             // A temporary evidence reset must not discard the last supported return position.
@@ -333,11 +390,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             } finally { samples.increment(); sampleNanos.add(System.nanoTime() - start); }
         }
         void sample(long now) throws Exception {
-            try { packetTick(now); }
-            catch (RuntimeException | LinkageError error) {
-                packetAttachFailed = true; closePackets();
-                getLogger().log(java.util.logging.Level.WARNING, "Packet diagnostics disabled for session; existing checks continue", error);
-            }
+            observePackets(now);
             int sequence = nativeTeleport.sequence(player);
             if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
             teleportSequence = sequence; seenTeleportSequence = true;

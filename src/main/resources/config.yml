@@ -47,4 +47,6 @@ alerts:
 # Turn off to retain the event/tick checks without the channel observer.
 packets:
   enabled: true
+  # Experimental outbound block cache; not used for corrections. Leave off for normal use.
+  world-replica: false
 

@@ -1,5 +1,17 @@
 # Test record
 
+## 0.5.0-rc.1
+
+Date: 2026-10-09. Windows 11, Oracle JDK 25. This is a release candidate. The new predictor is not connected to punishment or to live packet processing.
+
+Maven verification passed 155 tests with no failures or skips. Added coverage includes the exact 26.2 chunk-section format (two counters and fixed-length packed words), local/global block palettes, biome skipping, truncation and size limits, detached snapshots, unknown/forgotten chunks, copy-on-write updates, LRU bounds, materialization budget denial, tracked-area eviction and FIFO decoding of one chunk per drain. Four publication tests include 40,000 mixed events crossing real threads and reusing ring slots; they check payload identity, cleared references and exact accounting. These finite tests do not prove absence of every race.
+
+The collision kernel has 18 unit cases for free motion, floors, walls, partial blocks, step-up, descent, head clearance, negative coordinates, axis order and unsupported bounds. The predictor has 16 tests: ordinary 300-tick trajectories, sprint jumps, walls, slabs, missing position reports, sustained excessive speed, accumulated small excess, and a two-state slab ambiguity regression. Tests generate legal trajectories from the same arithmetic kernel, so they are not independent proof of parity with the real client. Runtime native differential tests cover axis clipping separately; complete native step-up and client replay validation remain unfinished.
+
+One recorded local synthetic run took 373 ms for 36,000 predictor frames (648,000 candidate trials) and 481 ms for 2,160,000 primitive packet events. They exclude real sockets, live world collection, region scheduling, client rendering and other plugins. These numbers do not establish capacity or allocation rates at 600 online players. The predictor is not invoked by the shipped runtime. The outbound cache is off by default and does not change the existing 17 checks.
+
+Remaining release gates: acknowledged historical client-world state rather than latest outbound data; complete ordinary collision-scene collection and support/friction selection; entity collisions and movement contexts; integrated prediction with safe reset/correction rules; independent native step-up/client replay tests; normal play under lag with real clients; and sustained distributed load with the intended plugin set. Player testing alone cannot substitute for the unimplemented integration. Do not treat this candidate as a stable full anticheat.
+
 ## 0.4.0
 
 Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 91,838 bytes; SHA-256 `437e61f9f98cf9d25d44ea5d7b65767c1a28f0da0d1ed094e68cc259654e9358`.
