@@ -1,12 +1,14 @@
 # Test record
 
-Date: 2026-10-09. Release candidate: 0.1.1. Windows 11, Oracle JDK 25.
+Date: 2026-10-09. Release candidate: 0.2.0. Windows 11, Oracle JDK 25.
 
 ## Unit tests
 
-`mvn -B -ntp clean verify`: 22 tests passed, no failures or skipped tests.
+`mvn -B -ntp clean verify`: 43 tests passed, no failures or skipped tests. GitHub Actions also passed the source build and all 43 tests.
 
 Coverage includes ordinary sprint jumps, sustained hover, wall ascent, sustained speed, isolated movement bursts, repeated excessive ascent, observed landing distance, exemptions, teleport resets, speed attributes, disabled checks, fall-damage accounting, invalid policy limits and time-conversion overflow. Post-reset anchor eligibility tests ensure an unchecked first position cannot count as clean movement. The native teleport sequence increment and wrap are tested separately.
+
+New cases cover micro-hop speed below the previous allowance, repeated ordinary sprint-jump momentum, early Spider evidence, ordinary jumps against walls, artificial slow falling, source-surface oscillations, brief surface crossings, ordinary/fast ladder ascent, ordinary/excessive cobweb movement, medium transitions, supported ladder-bottom anchors, zero-gravity attributes, item-use slowdown and custom full-speed item-use components. A migration test preserves existing modes while missing new check entries default to OBSERVE.
 
 ## Reproduced 0.1.0 regression
 
@@ -23,11 +25,19 @@ Test runtimes use Minecraft 26.2 and a fresh flat world, with one loopback-only 
 
 Both runtimes passed startup, console status, valid reload, rejection of an invalid reload while retaining the old policy, block-shape support and clearance, non-OP permission defaults, per-player scheduling, native FALL damage, preservation of cancelled FALL events, partial native damage recovery, hover detection, ordinary fall-damage non-duplication and recovery after injected fall-distance suppression. No region-ownership or NordGuard internal-check errors appeared in those scenarios.
 
-Both runtimes also passed an enabled Flight correction and two immediate repeated flight attempts. External teleport tests verify that the old return origin is invalidated and the next correction uses the new supported position. Ordinary walking caused no correction. Sustained constructed ground-speed attempts received three NordGuard corrections without moving the saved return point forward. Each platform passed all 21 runtime assertions and stopped cleanly; the tested JAR SHA-256 was identical on both platforms.
+Both runtimes also passed an enabled Flight correction and two immediate repeated flight attempts. External teleport tests verify that the old return origin is invalidated and the next correction uses the new supported position. Ordinary walking caused no correction. Sustained constructed ground-speed attempts received three NordGuard corrections without moving the saved return point forward.
+
+Each platform passed all 33 runtime assertions and stopped cleanly. This includes 0.5-block micro-hop speed, ordinary client-physics sprint jumps, constructed ordinary climbing/web/submerged movement, and corrections for Spider, WaterWalk, Climb, NoWeb and NoSlow. The tested Spider attempt reached 0.8 blocks on each final platform run before return; this is an observed fixture result, not a universal maximum under latency or low TPS.
+
+Shield tests verified stable server-side item use. Ordinary slowed movement and a custom USE_EFFECTS multiplier of 1 did not flag NOSLOW. Excessive movement with an ordinary shield triggered a completed NordGuard correction. These cases do not validate every item, release/reuse sequence or airborne item use.
+
+An earlier Folia test read the correction counter before the asynchronous entity-scheduled completion ran. The runner now waits up to three seconds for completion and still requires both NordGuard evidence and its own correction counter; a vanilla position packet alone cannot pass the test. The full Folia suite passed after that test fix. Earlier terrain fixtures also exposed vanilla collision corrections; they were corrected and are not counted as anti-cheat successes.
+
+The same 35,976-byte JAR was tested on both platforms. SHA-256: `9c4bad419e744dc0c1eb02f3f5bb5d069d554e4fd76d2e9504832a5d28cfc158`.
 
 The tested Folia asynchronous teleport did not advance the event-driven origin revision without the native-sequence fallback. The final build detected that server-issued teleport and passed the origin regression. Server teleport sequence reads run on the entity's region thread.
 
-The suppression case deliberately changes the synthetic player's server-side fall distance through GuardProbe. It tests recovery, not the existence of a Wurst exploit. Flight and Speed runtime cases use constructed movement packets, not a running Wurst client. Spider and HighJump are covered by pure model tests, not end-to-end cheat-client tests.
+The suppression case deliberately changes the synthetic player's server-side fall distance through GuardProbe. It tests recovery, not the existence of a Wurst exploit. Cheat-like runtime cases use constructed movement packets, not a running Wurst client. HighJump and Glide have pure model tests, not end-to-end cheat-client tests. Lava surfaces, Weaving, cancelled cobweb interactions and flowing-liquid edge cases still need runtime validation.
 
 GuardProbe and generated test worlds are not release contents. No production worlds, accounts, configurations or databases were used or modified.
 
