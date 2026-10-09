@@ -22,7 +22,8 @@ final class MovementModel {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
             reset(); last = next; peakY = next.y();
-            return new Result(flags, 0, !next.exempt());
+            // One position after a reset proves no displacement, so it cannot replace a return anchor.
+            return new Result(flags, 0, false);
         }
         double dx = next.x() - last.x(), dy = next.y() - last.y(), dz = next.z() - last.z();
         double horizontal = Math.hypot(dx, dz);

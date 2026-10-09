@@ -1,14 +1,18 @@
 # Test record
 
-Date: 2026-10-09. Release candidate: 0.1.0. Windows 11, Oracle JDK 25.
+Date: 2026-10-09. Release candidate: 0.1.1. Windows 11, Oracle JDK 25.
 
 ## Unit tests
 
-`mvn -B -ntp clean verify`: 19 tests passed, no failures or skipped tests.
+`mvn -B -ntp clean verify`: 22 tests passed, no failures or skipped tests.
 
-Coverage includes ordinary sprint jumps, sustained hover, wall ascent, sustained speed, isolated movement bursts, repeated excessive ascent, observed landing distance, exemptions, teleport resets, speed attributes, disabled checks, fall-damage accounting, invalid policy limits and time-conversion overflow.
+Coverage includes ordinary sprint jumps, sustained hover, wall ascent, sustained speed, isolated movement bursts, repeated excessive ascent, observed landing distance, exemptions, teleport resets, speed attributes, disabled checks, fall-damage accounting, invalid policy limits and time-conversion overflow. Post-reset anchor eligibility tests ensure an unchecked first position cannot count as clean movement. The native teleport sequence increment and wrap are tested separately.
 
-The workload case runs 600 independent movement models through 1,200 frames each: 720,000 samples. It excludes block queries, entity schedulers, packets, other plugins and real players. It is not evidence of capacity at 600 online players.
+## Reproduced 0.1.0 regression
+
+The retained original release JAR was tested with immediate repeated flight after its first successful setback. The first correction passed; the second flight attempt failed to receive another correction within five seconds. This is a failing regression, not a passing cheat-coverage test. Version 0.1.1 changes anchor retention and the settling period to address it.
+
+The workload case runs 600 independent movement models through 1,200 frames each: 720,000 samples. It excludes block queries, native state reads, entity schedulers, packets, other plugins and real players. It is not evidence of capacity at 600 online players.
 
 ## Isolated runtime checks
 
@@ -19,9 +23,11 @@ Test runtimes use Minecraft 26.2 and a fresh flat world, with one loopback-only 
 
 Both runtimes passed startup, console status, valid reload, rejection of an invalid reload while retaining the old policy, block-shape support and clearance, non-OP permission defaults, per-player scheduling, native FALL damage, preservation of cancelled FALL events, partial native damage recovery, hover detection, ordinary fall-damage non-duplication and recovery after injected fall-distance suppression. No region-ownership or NordGuard internal-check errors appeared in those scenarios.
 
-Both runtimes also passed an enabled Flight correction: an unsupported fixture returned to its last clean supported position through `teleportAsync`. Each platform passed all 15 runtime assertions and stopped cleanly.
+Both runtimes also passed an enabled Flight correction and two immediate repeated flight attempts. External teleport tests verify that the old return origin is invalidated and the next correction uses the new supported position. Ordinary walking caused no correction. Sustained constructed ground-speed attempts received three NordGuard corrections without moving the saved return point forward. Each platform passed all 21 runtime assertions and stopped cleanly; the tested JAR SHA-256 was identical on both platforms.
 
-The suppression case deliberately changes the synthetic player's server-side fall distance through GuardProbe. It tests recovery, not the existence of a Wurst exploit. The hover and ground-flag cases use constructed movement packets, not a running Wurst client. Spider, Speed and HighJump are covered by pure model tests, not end-to-end cheat-client tests.
+The tested Folia asynchronous teleport did not advance the event-driven origin revision without the native-sequence fallback. The final build detected that server-issued teleport and passed the origin regression. Server teleport sequence reads run on the entity's region thread.
+
+The suppression case deliberately changes the synthetic player's server-side fall distance through GuardProbe. It tests recovery, not the existence of a Wurst exploit. Flight and Speed runtime cases use constructed movement packets, not a running Wurst client. Spider and HighJump are covered by pure model tests, not end-to-end cheat-client tests.
 
 GuardProbe and generated test worlds are not release contents. No production worlds, accounts, configurations or databases were used or modified.
 

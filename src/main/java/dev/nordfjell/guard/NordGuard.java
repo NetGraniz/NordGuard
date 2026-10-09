@@ -39,6 +39,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private final LongAdder[] violations = Arrays.stream(Check.values()).map(c -> new LongAdder()).toArray(LongAdder[]::new);
     private volatile Policy policy;
     private NativeFall nativeFall;
+    private NativeTeleport nativeTeleport;
 
     @Override public void onEnable() {
         saveDefaultConfig();
@@ -47,6 +48,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (!Bukkit.getMinecraftVersion().equals("26.2"))
                 throw new IllegalStateException("This test build supports Minecraft 26.2 only");
             nativeFall = new NativeFall();
+            nativeTeleport = new NativeTeleport();
         } catch (Exception error) {
             getLogger().log(java.util.logging.Level.SEVERE, "NordGuard cannot start safely", error);
             Bukkit.getPluginManager().disablePlugin(this);
@@ -54,7 +56,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
         Bukkit.getPluginManager().registerEvents(this, this);
         for (Player player : Bukkit.getOnlinePlayers()) player.getScheduler().run(this, task -> attach(player), null);
-        getLogger().info("NordGuard 0.1.0 enabled; modes=" + policy.modes() + "; no bans or external services");
+        getLogger().info("NordGuard " + getDescription().getVersion() + " enabled; modes=" + policy.modes() + "; no bans or external services");
     }
     @Override public void onDisable() {
         sessions.values().forEach(s -> { if (s.task != null) s.task.cancel(); });
@@ -80,7 +82,14 @@ public final class NordGuard extends JavaPlugin implements Listener {
         subscribers.remove(event.getPlayer().getUniqueId());
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void teleport(PlayerTeleportEvent event) { grace(event.getPlayer()); }
+    public void teleport(PlayerTeleportEvent event) {
+        Session session = sessions.get(event.getPlayer().getUniqueId());
+        if (session != null && session.teleporting && session.setbackTarget != null && event.getTo() != null
+                && event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
+                && event.getTo().getWorld() == session.setbackTarget.getWorld()
+                && event.getTo().distanceSquared(session.setbackTarget) < 1.0E-8) return;
+        grace(event.getPlayer());
+    }
     @EventHandler(priority = EventPriority.MONITOR) public void respawn(PlayerRespawnEvent event) { grace(event.getPlayer()); }
     @EventHandler(priority = EventPriority.MONITOR) public void world(PlayerChangedWorldEvent event) { grace(event.getPlayer()); }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -110,7 +119,12 @@ public final class NordGuard extends JavaPlugin implements Listener {
     }
     private void grace(Player player) {
         Session session = sessions.get(player.getUniqueId());
-        if (session != null) session.suspend(policy.transitionGrace());
+        if (session != null) {
+            session.originRevision++;
+            session.safe = session.setbackTarget = null;
+            session.teleporting = false;
+            session.suspend(policy.transitionGrace());
+        }
     }
 
     private void report(Session session, Check check, String detail) {
@@ -135,7 +149,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         switch (args[0].toLowerCase(Locale.ROOT)) {
             case "status" -> {
                 long count = samples.sum();
-                sender.sendMessage("NordGuard 0.1.0 | sessions=" + sessions.size() + " | modes=" + policy.modes());
+                sender.sendMessage("NordGuard " + getDescription().getVersion() + " | sessions=" + sessions.size() + " | modes=" + policy.modes());
                 sender.sendMessage("Samples=" + count + ", deferred=" + skipped.sum() + ", corrections=" + corrections.sum()
                         + ", mean sample us=" + (count == 0 ? 0 : sampleNanos.sum() / count / 1000));
                 for (Check check : Check.values()) sender.sendMessage(check + ": " + violations[check.ordinal()].sum());
@@ -171,8 +185,11 @@ public final class NordGuard extends JavaPlugin implements Listener {
         final long[] lastAlert = new long[Check.values().length];
         ScheduledTask task;
         Policy seenPolicy;
-        Location last, safe;
+        Location last, safe, setbackTarget;
+        long originRevision;
         int grace, idle;
+        int teleportSequence;
+        boolean seenTeleportSequence;
         long lastNanos, fallEvents, fallBaseline, pendingBaseline, fallOverrides, overrideBaseline, pendingOverrides;
         double fallRawDamage, rawBaseline, pendingRawBaseline;
         double pendingFall;
@@ -181,7 +198,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
         boolean airborne, teleporting, stopped;
         Session(Player player) { this.player = player; seenPolicy = policy; grace = policy.joinGrace(); }
         void suspend(int ticks) {
-            model.reset(); last = safe = null; grace = Math.max(grace, ticks);
+            // A temporary evidence reset must not discard the last supported return position.
+            model.reset(); last = null; grace = Math.max(grace, ticks);
             pendingFall = 0; pendingTicks = 0; airborne = false;
             impulseSpeed = impulseY = 0;
         }
@@ -191,6 +209,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             try { sample(start); }
             catch (Exception error) {
                 teleporting = false;
+                setbackTarget = null;
                 suspend(100);
                 if (start - lastAlert[0] > 10_000_000_000L) {
                     lastAlert[0] = start;
@@ -199,6 +218,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
             } finally { samples.increment(); sampleNanos.add(System.nanoTime() - start); }
         }
         void sample(long now) throws Exception {
+            int sequence = nativeTeleport.sequence(player);
+            if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
+            teleportSequence = sequence; seenTeleportSequence = true;
             Policy current = policy;
             if (seenPolicy != current) { seenPolicy = current; suspend(current.joinGrace()); }
             long gap = now - lastNanos; lastNanos = now;
@@ -269,11 +291,25 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 var targetEnvironment = EnvironmentProbe.inspect(player, safe);
                 if (targetEnvironment.known() && targetEnvironment.ground() && targetEnvironment.clear() && !targetEnvironment.special()) {
                     Location target = safe.clone(); target.setYaw(at.getYaw()); target.setPitch(at.getPitch());
+                    long revision = originRevision;
+                    int expectedSequence = NativeTeleport.next(nativeTeleport.sequence(player));
+                    setbackTarget = target;
                     teleporting = true;
                     player.teleportAsync(target, PlayerTeleportEvent.TeleportCause.PLUGIN).whenComplete((success, error) ->
                             player.getScheduler().run(NordGuard.this, ignored -> {
-                                teleporting = false; suspend(current.transitionGrace());
-                                if (error == null && Boolean.TRUE.equals(success)) corrections.increment();
+                                if (originRevision != revision) return;
+                                teleportSequence = nativeTeleport.sequence(player);
+                                seenTeleportSequence = true;
+                                if (error == null && Boolean.TRUE.equals(success) && teleportSequence != expectedSequence) {
+                                    grace(player);
+                                    return;
+                                }
+                                teleporting = false; setbackTarget = null;
+                                suspend(2);
+                                if (error == null && Boolean.TRUE.equals(success)) {
+                                    safe = target.clone();
+                                    corrections.increment();
+                                }
                             }, () -> {}));
                     return;
                 }

@@ -14,6 +14,18 @@ class MovementModelTest {
     static MovementModel.Frame frame(double x, double y, boolean ground, boolean wall, boolean exempt) {
         return new MovementModel.Frame(x, y, 0, ground, wall, exempt, .39, .42, .6, .08);
     }
+    @Test void firstPositionDoesNotProveCleanMovement() {
+        var model = new MovementModel();
+        assertFalse(model.accept(frame(0, 64, true, false, false), policy()).clean());
+        assertTrue(model.accept(frame(0, 64, true, false, false), policy()).clean());
+    }
+    @Test void resetCannotTrustDisplacedGroundPositionAsNewAnchor() {
+        var model = new MovementModel();
+        model.accept(frame(0, 64, true, false, false), policy());
+        model.reset();
+        assertFalse(model.accept(frame(20, 64, true, false, false), policy()).clean());
+        assertFalse(model.accept(frame(22, 64, true, false, false), policy()).clean());
+    }
     @Test void sprintJumpTrajectoryIsNotFlagged() {
         var model = new MovementModel(); var policy = policy();
         model.accept(frame(0, 64, true, false, false), policy);

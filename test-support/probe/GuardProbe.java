@@ -37,7 +37,10 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 if (action.equals("prepare")) {
                     Location at = player.getLocation();
                     int x = at.getBlockX(), z = at.getBlockZ(), y = 80;
-                    for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
+                    for (int dx = -2; dx <= 24; dx++) for (int dz = -2; dz <= 2; dz++) {
+                        if (!Bukkit.isOwnedByCurrentRegion(at.getWorld(), (x + dx) >> 4, (z + dz) >> 4)
+                                || !at.getWorld().isChunkLoaded((x + dx) >> 4, (z + dz) >> 4))
+                            throw new AssertionError("Fixture terrain is not loaded and region-owned");
                         for (int dy = 0; dy <= 16; dy++) at.getWorld().getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR, false);
                         at.getWorld().getBlockAt(x + dx, y - 1, z + dz).setType(Material.STONE, false);
                     }
@@ -52,6 +55,23 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     if (player.hasPermission("nordguard.admin") || player.hasPermission("nordguard.bypass")
                             || player.hasPermission("nordguard.alerts")) throw new AssertionError("Unexpected default permission");
                     getLogger().info("GUARD_PERMISSIONS_PASS");
+                } else if (action.equals("origin")) {
+                    var guard = Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field map = NordGuard.class.getDeclaredField("sessions"); map.setAccessible(true);
+                    Object session = ((java.util.Map<?, ?>) map.get(guard)).get(player.getUniqueId());
+                    Field revision = session.getClass().getDeclaredField("originRevision"); revision.setAccessible(true);
+                    long before = revision.getLong(session);
+                    player.teleportAsync(player.getLocation().add(8, 0, 0)).thenRun(() ->
+                        player.getScheduler().runDelayed(this, ignored -> {
+                            try {
+                                Field safe = session.getClass().getDeclaredField("safe"); safe.setAccessible(true);
+                                Location anchor = (Location) safe.get(session);
+                                if (revision.getLong(session) <= before) throw new AssertionError("External teleport did not change origin revision");
+                                if (anchor != null && anchor.distanceSquared(player.getLocation()) > .0001)
+                                    throw new AssertionError("External teleport kept old anchor: " + anchor + "; actual=" + player.getLocation());
+                                getLogger().info("GUARD_ORIGIN_RESET");
+                            } catch (Throwable error) { getLogger().log(java.util.logging.Level.SEVERE, "GUARD_PROBE_FAIL", error); }
+                        }, null, 3));
                 } else if (action.equals("lift")) {
                     player.setHealth(20);
                     player.setNoDamageTicks(0);
@@ -60,15 +80,19 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                             Location at = player.getLocation();
                             getLogger().info("GUARD_LIFT " + at.getX() + " " + at.getY() + " " + at.getZ());
                         }, null));
-                } else if (action.equals("correct") || action.equals("setback")) {
+                } else if (action.equals("correct") || action.equals("setback") || action.equals("speed")) {
                     var guard = (NordGuard) Bukkit.getPluginManager().getPlugin("NordGuard");
                     Field field = NordGuard.class.getDeclaredField("policy"); field.setAccessible(true);
                     Policy old = (Policy) field.get(guard);
                     var modes = new EnumMap<Check, Policy.Mode>(old.modes());
-                    modes.put(action.equals("correct") ? Check.NOFALL : Check.FLIGHT, Policy.Mode.CORRECT);
+                    if (action.equals("speed")) {
+                        modes.put(Check.FLIGHT, Policy.Mode.OBSERVE);
+                        modes.put(Check.SPEED, Policy.Mode.CORRECT);
+                    } else modes.put(action.equals("correct") ? Check.NOFALL : Check.FLIGHT, Policy.Mode.CORRECT);
                     field.set(guard, new Policy(modes, old.buffer(), old.horizontalMargin(), old.verticalMargin(),
                             old.burstTicks(), old.joinGrace(), old.transitionGrace(), old.maxGapNanos(), old.alertNanos(), false));
-                    getLogger().info(action.equals("correct") ? "GUARD_CORRECT_READY" : "GUARD_SETBACK_READY");
+                    getLogger().info(action.equals("correct") ? "GUARD_CORRECT_READY"
+                            : action.equals("speed") ? "GUARD_SPEED_READY" : "GUARD_SETBACK_READY");
                 } else if (action.equals("suppress")) {
                     suppressFallDistance = true;
                     getLogger().info("GUARD_SUPPRESSION_READY");

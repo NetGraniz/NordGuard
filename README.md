@@ -1,6 +1,6 @@
 # NordGuard
 
-Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.1.0 is an experimental, observation-first build, not a complete anti-cheat.
+Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.1.1 is an experimental, observation-first build, not a complete anti-cheat.
 
 ## Checks
 
@@ -15,6 +15,8 @@ Movement and NoFall checks for Minecraft 26.2 on Paper and Folia. Version 0.1.0 
 NoFall prevents avoidance of fall damage; it does not disable normal fall damage. It reconstructs a fall from sampled height and actual block support, not the client's on-ground flag. It accounts for base FALL damage already observed, so partial early damage does not exempt an entire fall. Cancellation or modification of base damage by another plugin suppresses recovery for that fall. NordGuard does not override that decision or set health directly.
 
 NoFall respects the fall-damage game rule. Recovery also goes through native damage cooldowns, armor and enchantments; it does not force health loss through invulnerability. The version-gated native bridge must resolve before the plugin enables. This build rejects Minecraft versions other than 26.2.
+
+The native teleport bridge reads the server-issued teleport sequence on the player's region thread. This also detects external asynchronous teleports on the tested Folia build when a Bukkit teleport event is absent. Client movement flags do not set that sequence. Both native bridges need revalidation before supporting another Minecraft version.
 
 ## Installation and configuration
 
@@ -38,6 +40,8 @@ Each mode accepts `OFF`, `OBSERVE` or `CORRECT`. Observation records evidence wi
 Join and transition grace values use player scheduler ticks. Long sampling gaps clear history. Accepted velocity events briefly reset history and add a capped, decaying impulse allowance. Unrecognized or special environments defer checks.
 
 Reload validates a complete policy before publication. Invalid reloads retain the previous policy; successful reloads reset histories on the next player sample.
+
+Temporary history resets keep the last clean supported return position. The first sample after a reset cannot replace it: the model needs displacement evidence before accepting a new clean position. External teleports, respawns, world changes and game-mode changes discard it. A successful NordGuard setback keeps its validated destination and uses a two-tick settling period instead of the ordinary transition grace. Immediate repeated movement violations can therefore trigger another setback without waiting for a new ground sample. Evidence buffers still apply; corrections are not instantaneous packet rejection.
 
 ## Commands and permissions
 
@@ -92,7 +96,7 @@ Target deployment: 600 players. That capacity is not validated. Bounded work and
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.1.0.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.1.1.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

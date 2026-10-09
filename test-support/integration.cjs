@@ -10,6 +10,7 @@ assert(path.basename(root).startsWith('nordguard-test-') && !fs.existsSync(root)
 assert(['Paper', 'Folia'].includes(platform));
 const mineflayer = require(path.join(path.resolve(modules), 'mineflayer'));
 const project = path.resolve(__dirname, '..');
+const version = fs.readFileSync(path.join(project,'src/main/resources/plugin.yml'),'utf8').match(/^version: (.+)$/m)[1].trim();
 let server, bot, output = '', exited = false;
 const passed = [];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -39,14 +40,14 @@ async function main() {
   }
   assert(/eula=true/i.test(fs.readFileSync(path.join(root,'eula.txt'),'utf8')), 'Existing accepted EULA required');
   fs.copyFileSync(path.join(__dirname,'fixtures/server.properties'),path.join(root,'server.properties'));
-  fs.copyFileSync(path.join(project,'target/NordGuard-0.1.0.jar'),path.join(root,'plugins/NordGuard-0.1.0.jar'));
+  fs.copyFileSync(path.join(project,`target/NordGuard-${version}.jar`),path.join(root,`plugins/NordGuard-${version}.jar`));
   fs.copyFileSync(path.join(__dirname,'build/GuardProbe.jar'),path.join(root,'plugins/GuardProbe.jar'));
   server = spawn(java,['-Dterminal.jline=false','-Dterminal.ansi=false','-Xms256M','-Xmx1400M','-jar','server.jar','nogui'],
     {cwd:root,windowsHide:true,stdio:['pipe','pipe','pipe']});
   for (const stream of [server.stdout,server.stderr]) stream.on('data', chunk => { output += chunk.toString(); });
   server.on('exit',()=>{exited=true});
   await until(()=>/Done \(/.test(output), 'startup',180000);
-  assert(output.includes('NordGuard 0.1.0 enabled')); pass(platform+' startup');
+  assert(output.includes(`NordGuard ${version} enabled`)); pass(platform+' startup');
   await marker('nordguard status', /sessions=0/); pass('console status');
   await marker('nordguard reload', /configuration reloaded/); pass('reload');
   const configPath=path.join(root,'plugins/NordGuard/config.yml');
@@ -57,7 +58,11 @@ async function main() {
   await marker('nordguard reload',/configuration reloaded/); pass('invalid reload retains last valid policy');
   bot=mineflayer.createBot({host:'127.0.0.1',port:25659,username:'GuardFixture',version:'26.2',auth:'offline'});
   bot.on('error',error=>{output+='\nBOT_ERROR '+error.message});
-  await new Promise((resolve,reject)=>{bot.once('spawn',resolve);bot.once('error',reject);setTimeout(()=>reject(Error('bot spawn timeout')),60000)});
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(Error('bot spawn timeout')),60000);
+    bot.once('spawn',()=>{clearTimeout(timer);resolve()});
+    bot.once('error',error=>{clearTimeout(timer);reject(error)});
+  });
   await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
   await sleep(4000);
   await marker('guardprobe probe GuardFixture',/GUARD_GEOMETRY_PASS/); pass('actual block-shape support and body clearance');
@@ -119,6 +124,70 @@ async function main() {
   const landed=await marker('guardprobe health GuardFixture',/GUARD_HEALTH [\d.]+ FALL_EVENTS=\d+ Y=([\d.-]+)/);
   assert(Math.abs(+landed[1]-supported.y)<.01,'Setback must return to supported position');
   pass('flight correction returns player to a clean supported position');
+  for(let attempt=2;attempt<=3;attempt++) {
+    setback=false;
+    bot.on('forcedMove',forced);
+    for(let i=0;i<100&&!setback;i++) {
+      bot.entity.position.set(supported.x,supported.y+4,supported.z);
+      bot.entity.onGround=true;
+      bot._client.write('position',{x:supported.x,y:supported.y+4,z:supported.z,
+        flags:{onGround:true,hasHorizontalCollision:false}});
+      await sleep(50);
+    }
+    bot.removeListener('forcedMove',forced);
+    assert(setback,`Immediate repeated flight attempt ${attempt} must also be corrected`);
+    pass(`immediate repeated flight attempt ${attempt} corrected`);
+  }
+  await marker('guardprobe origin GuardFixture',/GUARD_ORIGIN_RESET/);
+  pass('external teleport discards the previous return anchor');
+  await sleep(2000);
+  const newOrigin=bot.entity.position.clone();
+  setback=false;
+  bot.on('forcedMove',forced);
+  for(let i=0;i<100&&!setback;i++) {
+    bot.entity.position.set(newOrigin.x,newOrigin.y+4,newOrigin.z);
+    bot.entity.onGround=true;
+    bot._client.write('position',{x:newOrigin.x,y:newOrigin.y+4,z:newOrigin.z,
+      flags:{onGround:true,hasHorizontalCollision:false}});
+    await sleep(50);
+  }
+  bot.removeListener('forcedMove',forced);
+  assert(setback&&bot.entity.position.distanceTo(newOrigin)<.01,'Correction must use new supported origin');
+  pass('correction after external teleport uses the new supported origin');
+  await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await marker('guardprobe speed GuardFixture',/GUARD_SPEED_READY/);
+  await sleep(4000);
+  const walkBaseline=await marker('nordguard status',/corrections=(\d+)/);
+  for(let i=0;i<10;i++) {
+    const p=bot.entity.position;
+    p.set(p.x+.15,p.y,p.z);
+    bot.entity.onGround=true;
+    bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:true,hasHorizontalCollision:false}});
+    await sleep(50);
+  }
+  const walkResult=await marker('nordguard status',/corrections=(\d+)/);
+  assert.equal(+walkResult[1],+walkBaseline[1],'Ordinary walking must not cause correction');
+  pass('ordinary walking is not corrected');
+  await sleep(250);
+  const speedOrigin=bot.entity.position.clone();
+  const speedBaseline=await marker('nordguard status',/corrections=(\d+)/);
+  let speedSetbacks=0;
+  const speedTargets=[];
+  const speedForced=()=>{speedSetbacks++;speedTargets.push(bot.entity.position.clone())};
+  bot.on('forcedMove',speedForced);
+  for(let i=0;i<120&&speedSetbacks<3;i++) {
+    const p=bot.entity.position;
+    p.set(p.x+1.5,p.y,p.z);
+    bot.entity.onGround=true;
+    bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:true,hasHorizontalCollision:false}});
+    await sleep(50);
+  }
+  bot.removeListener('forcedMove',speedForced);
+  await sleep(200);
+  const speedResult=await marker('nordguard status',/corrections=(\d+)/);
+  assert(+speedResult[1]-+speedBaseline[1]>=3,'Sustained speed must receive at least three NordGuard corrections');
+  assert(speedTargets.every(p=>p.distanceTo(speedOrigin)<.01),'Repeated speed must not advance the saved return position');
+  pass('sustained speed receives repeated NordGuard corrections');
   assert(!/GUARD_PROBE_FAIL|Cannot read world asynchronously|Deferred player check after internal error/.test(output));
   pass('no region ownership errors');
 }
