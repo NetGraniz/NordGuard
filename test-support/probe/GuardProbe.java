@@ -104,9 +104,10 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     Field map=NordGuard.class.getDeclaredField("sessions");map.setAccessible(true);
                     Object session=((java.util.Map<?,?>)map.get(guard)).get(player.getUniqueId());
                     Field window=session.getClass().getDeclaredField("setbacks");window.setAccessible(true);
-                    var state=(SetbackWindow)window.get(session);
+                    Object state=window.get(session);
                     Field rev=session.getClass().getDeclaredField("originRevision");rev.setAccessible(true);
-                    long before=rev.getLong(session),old=state.begin(System.nanoTime()-SetbackWindow.TIMEOUT_NANOS-1,before);
+                    Class<?>[] pair={long.class,long.class},triple={long.class,long.class,long.class};
+                    long before=rev.getLong(session),old=(long)invoke(state,"begin",pair,System.nanoTime()-5_000_000_001L,before);
                     for(var entry:java.util.Map.<String,Object>of("teleporting",true,"setbackTarget",player.getLocation(),"safe",player.getLocation()).entrySet()) {
                         Field f=session.getClass().getDeclaredField(entry.getKey());f.setAccessible(true);f.set(session,entry.getValue());
                     }
@@ -114,10 +115,11 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     Field busy=session.getClass().getDeclaredField("teleporting");busy.setAccessible(true);
                     Field safe=session.getClass().getDeclaredField("safe");safe.setAccessible(true);
                     actionPass("setback_timeout_clears_owner_state",!busy.getBoolean(session)&&safe.get(session)==null&&rev.getLong(session)>before);
-                    actionPass("setback_timeout_rejects_late_completion",!state.finish(old,before,System.nanoTime()));
-                    long next=state.begin(System.nanoTime(),rev.getLong(session));
-                    actionPass("setback_old_completion_preserves_new_ticket",!state.finish(old,before,System.nanoTime())&&state.owns(next,rev.getLong(session)));
-                    state.cancel();getLogger().info("GUARD_SETBACK_WINDOW_DONE");
+                    actionPass("setback_timeout_rejects_late_completion",!(boolean)invoke(state,"finish",triple,old,before,System.nanoTime()));
+                    long next=(long)invoke(state,"begin",pair,System.nanoTime(),rev.getLong(session));
+                    actionPass("setback_old_completion_preserves_new_ticket",!(boolean)invoke(state,"finish",triple,old,before,System.nanoTime())
+                            &&(boolean)invoke(state,"owns",pair,next,rev.getLong(session)));
+                    invoke(state,"cancel",new Class<?>[]{});getLogger().info("GUARD_SETBACK_WINDOW_DONE");
                 } else if(action.equals("phase")) {
                     phaseSuite(player);
                 } else if(action.equals("perf")) {
