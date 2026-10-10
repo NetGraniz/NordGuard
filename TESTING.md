@@ -1,5 +1,11 @@
 # Test record
 
+## Transport-fixture correction — 2026-10-10
+
+The relay before commit `4e9df1f` used an independent timer for each TCP fragment. A raw 6,000-byte reproduction received all bytes but changed their order: the first mismatch was index 3, with `5, 3, 4, 6, 8, 9, 10, 7` instead of consecutive integers. The new two-direction regression failed on the former implementation at its upstream FIFO assertion, then passed after the relay gained one ordered queue and one head timer per direction. The CI now runs that regression. [Node's timer contract](https://nodejs.org/api/timers.html#settimeoutcallback-delay-args) does not guarantee callback ordering.
+
+Earlier relay runs did not establish byte-order preservation. Their reported counts remain historical observations, not reliable evidence of behavior under FIFO TCP jitter. In particular, the rc.7 passing matrix and the first rc.8 native runs do not close a release gate. Pure-model tests and non-network assertions are not invalidated by this finding. The relay fix changed test code only; it did not change movement thresholds or physics in the plugin.
+
 ## 0.5.0-rc.7 — bounded arrival allowance (stage 4 still open)
 
 Date: 2026-10-10. Local candidate: 166,146 bytes; SHA-256 `188c725a84985ec75bd55f137ebb3b0ecbddda5ded195ab944f4c229a3aaa74c`. Windows 11, Oracle JDK 25. Production was not accessed. The isolated runtime tests use only synthetic accounts and fresh worlds.

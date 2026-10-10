@@ -2,7 +2,7 @@
 
 Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.8 preserves the observed chunk stream across self attributes, effects and metadata changes while still resetting physics confidence. It retains the bounded arrival allowance, coalesced jumps and floor-support checks. Grounded idle samples retain their normal support/return-anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is an experimental candidate, not a stable complete anticheat.
 
-Stage 4 is not passed. The rc.7 archive passes the specified native-client walking, sprinting, jump and sneak matrix on both tested platforms, including delayed traffic. This resolves those recorded false SPEED cases, not every legitimate movement scenario or timing exploit. Keep movement checks in their default OBSERVE mode. Passing this narrow matrix and detecting four Wurst modules does not make correction universally safe. See [TESTING.md](TESTING.md) for the remaining gates and earlier failing runs.
+Stage 4 is not passed. Earlier latency tests used a relay that could reorder TCP fragments; their reported matrix results do not validate FIFO-network behavior. The fixture now uses an explicit ordered queue and a byte-for-byte regression. Keep movement checks in their default OBSERVE mode. A narrow client matrix and detection of four Wurst modules do not make correction universally safe. See [TESTING.md](TESTING.md) for current evidence, remaining gates and historical runs.
 
 ## Checks
 

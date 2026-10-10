@@ -6,6 +6,7 @@
 - Keep dimension resets, uncertain world data, barrier ambiguity and observer loss conservative. No prediction-based punishment or default-enabled replica was added.
 - Add regressions for preserved confirmed geometry, pending changes that remain unknown until the matching barrier, and physics-confidence invalidation.
 - Extend the native fixture with terrain, effects, impulses, a two-minute patrol, explicit nonzero predictor coverage and optional isolated-server JFR recording. These helpers are not included in the plugin JAR.
+- Fix byte reordering in the test relay with a FIFO queue and one monotonic head timer per direction. Cap queued payload and entries, preserve backpressure, and verify 6,000 bytes in both directions in CI. Earlier latency results are not reliable FIFO-network evidence; no movement thresholds were changed for this fixture defect.
 
 ## 0.5.0-rc.7 — bounded arrival-batch allowance
 

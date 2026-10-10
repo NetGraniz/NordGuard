@@ -25,6 +25,12 @@ let lastState={},lastStateTime=0;
 function state(){try{const file=path.join(root,'client/state.json');lastState=JSON.parse(fs.readFileSync(file,'utf8'));lastStateTime=fs.statSync(file).mtimeMs;}
   catch{/* A native write may briefly expose a partial file; never use a snapshot older than one second. */}
   return Date.now()-lastStateTime<=1000?lastState:{};}
+async function activeState(expectedMode){let snapshot;
+  await until(()=>{const next=state();if(next.screen==='DeathScreen')throw Error('Native fixture player died');
+    if(clientExit)throw Error('Native client exited');
+    if(next.id===sequence&&next.mode===expectedMode&&next.connected){snapshot=next;return true;}return false;
+  },'fresh native state for '+expectedMode,5000);return snapshot;
+}
 async function control(value){const file=path.join(root,'client/control.json');fs.writeFileSync(file+'.tmp',JSON.stringify(value));
   for(let attempt=0;;attempt++){try{fs.renameSync(file+'.tmp',file);return}catch(error){
     if(!['EPERM','EBUSY','EACCES'].includes(error.code)||attempt>=30)throw error;
@@ -100,10 +106,10 @@ async function main(){
   for(const delay of [0,100,300]){
     proxy.delay=delay;proxy.jitter=delay===300;
     for(const action of ['walk','sprint','jump','sneak']){
-      await prepare();const before=await stats(),origin=state();
+      await prepare();const before=await stats(),origin=await activeState('idle');
       if(action==='jump'||action==='sprint'&&delay===100)await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
-      await mode(action);await sleep(ordinaryDuration);const activeEnd=state();await mode('idle');await sleep(1200);
-      const after=await stats(),end=state(),distance=Math.hypot(end.x-origin.x,end.z-origin.z);
+      await mode(action);await sleep(ordinaryDuration);const activeEnd=await activeState(action);await mode('idle');await sleep(1200);
+      const after=await stats(),end=await activeState('idle'),distance=Math.hypot(end.x-origin.x,end.z-origin.z);
       measurements.push({kind:'ordinary',delay,jitter:proxy.jitter,action,distance,travel:activeEnd.travel,before,after,clientTicks:end.ticks-origin.ticks});
       const issues=[];
       if(!Number.isFinite(activeEnd.travel)||activeEnd.travel<=.5)issues.push('native input did not move');
@@ -128,12 +134,12 @@ async function main(){
       ['web','walk','noweb'],['ladder','walk','climb'],['soak','jump']]){
       await prepare(terrain);
       if(!terrain&&scenario!=='soak'&&scenario!=='knockback')await marker('guardprobe ordinaryscenario GuardFixture '+scenario,/GUARD_ORDINARY_SCENARIO/);
-      await sleep(1000);const before=await stats(),origin=state();
+      await sleep(1000);const before=await stats(),origin=await activeState('idle');
       if(scenario==='soak'&&profile)await recording('JFR.start');
       await mode(action);
       if(scenario==='knockback'){await sleep(1000);await marker('guardprobe ordinaryscenario GuardFixture knockback',/GUARD_ORDINARY_SCENARIO/);}
-      await sleep(scenario==='soak'?120000:scenario==='ladder'?2500:12000);const activeEnd=state();await mode('idle');await sleep(1500);
-      const after=await stats(),end=state(),issues=[];
+      await sleep(scenario==='soak'?120000:scenario==='ladder'?2500:12000);const activeEnd=await activeState(action);await mode('idle');await sleep(1500);
+      const after=await stats(),end=await activeState('idle'),issues=[];
       if(scenario==='soak'&&profile)await recording('JFR.stop');
       const vertical=activeEnd.y-origin.y;
       if(scenario==='ladder' ? !(vertical>1) : !(activeEnd.travel>.1))issues.push('scenario did not produce native movement');
@@ -150,10 +156,10 @@ async function main(){
   for(const delay of [0,100,300]){
     proxy.delay=delay;proxy.jitter=delay===300;
     for(const [action,terrain,check] of [['flight',null,'FLIGHT'],['speed',null,'SPEED'],['spider','spider','SPIDER'],['water','waterwalk','WATERWALK']]){
-      await prepare(terrain);const before=await stats(),origin=state();await mode(action);const enabled=state();
+      await prepare(terrain);const before=await stats(),origin=await activeState('idle');await mode(action);const enabled=await activeState(action);
       assert(enabled.moduleEnabled,'Actual Wurst module must be enabled: '+action);
       await sleep(5000);await mode('idle');await sleep(1200);
-      const after=await stats(),end=state();measurements.push({kind:'wurst',delay,jitter:proxy.jitter,action,terrain,before,after,origin,enabled,end});
+      const after=await stats(),end=await activeState('idle');measurements.push({kind:'wurst',delay,jitter:proxy.jitter,action,terrain,before,after,origin,enabled,end});
       if(after[check]<=before[check]||after.corrections<=before.corrections){const issue=`Wurst ${action}, ${delay}ms: own evidence or completed correction missing`;failures.push(issue);console.log('FAIL: '+issue);}
       else pass(`actual Wurst ${action}, ${delay}ms detected and corrected`);
     }
