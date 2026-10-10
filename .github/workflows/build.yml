@@ -13,6 +13,7 @@ jobs:
           java-version: '25'
           cache: maven
       - run: mvn -B -ntp clean verify
+      - run: node --test test-support/delay-proxy.test.cjs
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: NordGuard

@@ -41,6 +41,37 @@ class BatchedJumpTest {
         assertTrue(missedLandings(80, 3).contains(Check.SPEED));
     }
 
+    @Test void coalescedAlternatingLandingsDoNotFalseFlagFlight() {
+        assertFalse(coalescedLandings(80,1).contains(Check.FLIGHT));
+    }
+
+    @Test void coalescedUnknownFloorStillDetectsFlight() {
+        assertTrue(coalescedLandings(Double.NaN,1).contains(Check.FLIGHT));
+    }
+
+    @Test void coalescedDistantFloorStillDetectsFlight() {
+        assertTrue(coalescedLandings(77,1).contains(Check.FLIGHT));
+    }
+
+    @Test void coalescedLandingsStillDetectExcessiveAverageSpeed() {
+        assertTrue(coalescedLandings(80,3).contains(Check.SPEED));
+    }
+
+    private static EnumSet<Check> coalescedLandings(double support,double multiplier) {
+        var model=new MovementModel();var policy=MovementModelTest.policy();
+        var flags=EnumSet.noneOf(Check.class);double x=0;
+        model.accept(frame(0,80,true),policy);
+        // Constructed coalesced jump cycle with unchanged transport-idle ticks
+        // between samples and no grounded sample. Not a replay of the faulty relay.
+        double[] heights={.75319998,1.16610926,1.25220334,1.02442409,.49520088,.12129684};
+        for(int cycle=0;cycle<60;cycle++)for(double height:heights) {
+            x+=.72*multiplier;
+            flags.addAll(model.accept(frame(x,80+height,false),policy,support).flags());
+            model.transportIdleTick();
+        }
+        return flags;
+    }
+
     @Test void threeStepTakeoffIsNotAnExcessiveHighJump() {
         assertFalse(repeatedTakeoff(1.00133597911214).contains(Check.HIGHJUMP));
     }
