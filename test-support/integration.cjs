@@ -112,6 +112,35 @@ async function main() {
   await marker('guardprobe replicarestore GuardFixture',/GUARD_REPLICA_EDIT_SENT replicarestore/);await sleep(1000);
   await marker('guardprobe replicaeditcheck GuardFixture restored',/GUARD_REPLICA_EDIT_PASS restored/);
   pass('packet-only fixture block restored through acknowledged stream');
+  await marker('nordguard inspect GuardFixture',/Prediction disabled/);pass('packet prediction disabled by default');
+  bot.physicsEnabled=false;
+  const predictionWrite=bot._client.write;
+  bot._client.write=function(name,packet,...args) {
+    if(['position','position_look','look','flying'].includes(name))return;
+    return predictionWrite.call(this,name,packet,...args);
+  };
+  const predictionOrigin=await marker('guardprobe predictionprepare GuardFixture',/GUARD_PREDICTION_PREPARED ([\d.-]+) ([\d.-]+) ([\d.-]+)/);
+  const predictionConfig=originalConfig.replace('world-replica: false','world-replica: true').replace('  enabled: false','  enabled: true');
+  fs.writeFileSync(configPath,predictionConfig);await marker('nordguard reload',/configuration reloaded/);await sleep(1000);
+  await marker('guardprobe replicaresend GuardFixture',/GUARD_REPLICA_RESENT/);await sleep(1000);
+  let px=+predictionOrigin[1],py=+predictionOrigin[2],pz=+predictionOrigin[3];
+  async function predictionFrame() {
+    bot.entity.position.set(px,py,pz);
+    predictionWrite.call(bot._client,'position_look',{x:px,y:py,z:pz,yaw:0,pitch:0,flags:{onGround:true,hasHorizontalCollision:false}});
+    predictionWrite.call(bot._client,'tick_end',{});await sleep(55);
+  }
+  for(let i=0;i<12;i++)await predictionFrame();
+  const seeded=await marker('nordguard inspect GuardFixture',/Prediction observe-only, ticks=(\d+), seeds=([1-9]\d*), accepted=([1-9]\d*), mismatched=(\d+)/);
+  assert.equal(+seeded[4],0);pass('actual Move and TickEnd packets establish supported rest and run predictor');
+  let pv=0;const drag=Math.fround(Math.fround(.6)*Math.fround(.91));
+  for(let i=0;i<20;i++){pv+=Math.fround(.1)*Math.fround(.98);pz+=pv;pv*=drag;await predictionFrame();}
+  const walked=await marker('nordguard inspect GuardFixture',/Prediction observe-only, ticks=(\d+), seeds=(\d+), accepted=(\d+), mismatched=(\d+)/);
+  assert(+walked[3]>=+seeded[3]+18,'Ordinary packet walk must run actual prediction');assert.equal(+walked[4],0);
+  pass('ordinary constructed packet walk accepted by integrated confirmed-world predictor');
+  for(let i=0;i<4;i++){pz+=.8;await predictionFrame();}
+  const mismatch=await marker('nordguard inspect GuardFixture',/Prediction observe-only, ticks=(\d+), seeds=(\d+), accepted=(\d+), mismatched=([1-9]\d*)/);
+  assert(+mismatch[4]>=2);pass('excess packet speed recorded as predictor mismatch without punishment');
+  bot._client.write=predictionWrite;bot.physicsEnabled=true;
   fs.writeFileSync(configPath,originalConfig);await marker('nordguard reload',/configuration reloaded/);await sleep(600);
   await marker('nordguard inspect GuardFixture',/Replica disabled/);pass('opt-in cache reload releases session cache');
   if(!process.env.NORD_GUARD_ACTIONS_ONLY) {

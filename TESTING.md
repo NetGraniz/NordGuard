@@ -1,5 +1,19 @@
 # Test record
 
+## 0.5.0-rc.3 — stage 2
+
+Date: 2026-10-10. Windows 11, Oracle JDK 25. Candidate JAR: 162,524 bytes; SHA-256 `c9abae01427da67bf58311489a9a116e8faabd41a2f281bae5d2bc4a4d563109`. Production was not accessed or modified. This is an observation-only integration, not a stable complete anticheat.
+
+Local Maven verification passed 202 unit tests with no failures or skips. The 25 new cases exercise actual frame assembly, five-frame supported-rest seeding, 200 walking frames, ordinary jump/landing, a fixed sprint context, omitted moves, unknown geometry, forged ground claims without support, owner disagreement, duplicate movement, geometry revision changes between Move and TickEnd, transitions, frame/cell budget exhaustion, two-frame drain caps, monotonic tick credit across resets, long gaps/non-finite input, excess movement and unsupported owner attributes. Scene tests cover support/friction agreement across both branches, denied/oversized scans before any reads, unknown halo cells and missing alternate support. Settings tests cover opt-in defaults, required dependencies and bounded typed values.
+
+The integrated model runs from real packet callbacks drained on the entity owner. It collects acknowledged static geometry for both candidate origins and keeps computed momentum; it never sets velocity from observed displacement. Move frames finish at TickEnd, with independent monotonic tick credit and shared work budgets. Geometry or context uncertainty defers. Mismatches affect only administrator-requested diagnostics, not existing evidence counters, alerts or corrections.
+
+Native verification used the installed official 26.2 client bytecode: `Minecraft.tick` sends `ServerboundClientTickEndPacket.INSTANCE`, and `LocalPlayer.tick` calls `sendPosition`. Runtime fixtures construct packets explicitly rather than replay the official client. Pure trajectory tests also use the arithmetic kernel, so neither establishes complete independent client parity.
+
+The first Paper run passed the full suite using an earlier JAR. Final review then excluded custom air-drag/friction modifiers and nondefault walk-speed settings; the earlier run is not validation of the published binary. The final candidate keeps both prediction and its block cache off by default. At most two frames run per owner drain, each with 512 scene cells, 256 shapes and 36 candidate trials; default global budgets are 2,000 frames/s and 250,000 cells/s. Budget exhaustion deliberately loses coverage. These are work-count limits, not timing guarantees or proof of 600-player capacity.
+
+Current limits: server attributes and sprint state are owner snapshots, not acknowledged historical attributes. Rest seeding is a conservative hypothesis, not proof of the client's hidden velocity. Entity collisions, world borders, special movement, sprint transitions and packet rewriting remain outside the validated contract and may produce diagnostic mismatches. Some transitions invalidate the block cache until chunks are naturally resent. Clients omitting TickEnd get no prediction; original checks remain active. Full native step-up parity, real client replays, predictor corrections and distributed performance/allocation testing remain gates for stages 3–5.
+
 ## 0.5.0-rc.2 — stage 1
 
 Date: 2026-10-09. Windows 11, Oracle JDK 25. Candidate JAR: 146,820 bytes; SHA-256 `626ef3e0da7c0b54b5faaa2b30ea4b89860716c4c521a0e360a26af8349f2a6b`. No production files were accessed or changed. The predictor remains disconnected from runtime checks.

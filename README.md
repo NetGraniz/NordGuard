@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.2 adds ordered Ping/Pong commits to the opt-in outbound block cache. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.3 connects the ordinary movement predictor to an opt-in packet observation path and acknowledged block state. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
 
 ## Checks
 
@@ -120,7 +120,7 @@ The timeline observes movement variants, persistent input, client TickEnd, self 
 
 An acknowledged stream prefix does **not** prove that a modified client obeyed a packet. Pong is not authenticated. The opt-in world journal tracks that prefix conservatively; it does not reconstruct every possible old/new client-world branch or provide arbitrary historical replay. No packet-based correction is enabled in this build. Reach history and existing movement checks retain their previous behavior; this timeline does not silently replace them with complete latency compensation.
 
-`OrdinaryPhysics` implements the verified 26.2 arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. `CollisionPhysics` clips bounded AABB scenes and handles step-up. `OrdinaryPredictor` keeps calculated position and velocity; it never resets velocity from an unchecked observed move. It tries 18 input variants per state and retains at most two plausible states (36 trials), because walking and jumping onto a slab can produce the same coordinates with different grounded states. Excess ambiguity, unsupported collisions or missing scene data defer the calculation rather than count a violation. These standalone kernels are tested but **not wired into runtime enforcement**. Fluids, climbing, vehicles, entity pushes, world borders, crouch-edge behavior and special movement remain outside their contract.
+`OrdinaryPhysics` implements the verified 26.2 arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. `CollisionPhysics` clips bounded AABB scenes and handles step-up. `OrdinaryPredictor` keeps calculated position and velocity; it never resets velocity from an unchecked observed move. It tries 18 input variants per state and retains at most two plausible states (36 trials), because walking and jumping onto a slab can produce the same coordinates with different grounded states. Excess ambiguity, unsupported collisions or missing scene data defer the calculation rather than count a violation. The kernels now have an optional runtime observation path, but **no new enforcement**. Fluids, climbing, vehicles, entity pushes, world borders, crouch-edge behavior and special movement remain outside their contract.
 
 `packets.world-replica: false` leaves the new block cache off. Enabling it captures detached copies of outbound chunk, single-block and section-block data within one chunk of the observed player chunk. It never reads live worlds from a channel callback. A separate journal stages changes without modifying the confirmed cache. Each sent Ping records the current journal sequence; its ordered matching Pong commits only that prefix. Newer updates remain pending. The geometry lookup returns unknown for a chunk with pending changes, while unaffected confirmed chunks remain available.
 
@@ -129,6 +129,30 @@ Missing, forgotten, evicted or uncertain data remain unknown, not air. Dimension
 The opt-in cache retains at most 16 chunks and 512 KiB of accounted cache data per player. The inbox holds at most 16 world updates / 512 KiB, and the acknowledgement journal has its own 16-update / 512 KiB limit. These three layers can therefore account for up to 1.5 MiB per player, before headers and temporary allocations. Journal barriers are capped at four. Geometry lookup checks at most 16 pending chunk keys; it does not scan all changed blocks. Decoding handles at most one chunk per scheduler drain, preserving FIFO order. Global budgets allow up to 8 MiB/s of payload capture, 4 MiB/s of chunk decoding and 1,000,000 section-materialization cells/s in 50 ms windows. Budget exhaustion forgets affected knowledge. Those limits account for payload/arrays, not total heap use or CPU time. They are not evidence of capacity at 600 players.
 
 Packet collection and the opt-in cache can be disabled and re-enabled with configuration reload. Observer failures disable diagnostics for the affected session without suspending the existing checks. Quit, retired sessions and plugin disable remove only their own channel handler. Diagnostic output is requested by an administrator; there is no automatic per-packet logging or disk I/O. History and barrier storage use 15,696 bytes of primitive-array payload per session, plus a 256-slot payload-reference array; object headers, native channel state and shared bindings are additional. No prediction work or block copying runs with the cache disabled.
+
+### Ordinary packet prediction — observation only
+
+The integration is off by default. To test it on an isolated server, enable both packet options and prediction:
+
+```yaml
+packets:
+  enabled: true
+  world-replica: true
+prediction:
+  enabled: true
+  frames-per-second: 2000
+  cells-per-second: 250000
+```
+
+Reload rejects an enabled prediction configuration without both dependencies. Missing settings leave prediction off. `/nordguard inspect <player>` reports seeds, accepted frames, mismatches, deferred frames and candidate trials. Mismatches do not increment the existing check counters, emit alerts, cancel packets, deal damage or move the player. Even `CORRECT` on an existing check does not enable predictor corrections.
+
+One Move packet, or an omitted move, is finalized by ClientTickEnd. Duplicate moves, missing position context, changes to geometry between Move and TickEnd and long gaps defer the frame. TickEnd is untrusted: a monotonic 20-tick/s budget with four ticks of burst credit bounds claims; resetting the model does not refill credit. At most two frames run per owner drain. A client that omits TickEnd does not get packet prediction; the original checks still run.
+
+Scenes come only from acknowledged block IDs. Collection covers both predicted branches, their candidate sweep, step height and a one-block halo for extended shapes. It reads at most 512 cells and retains at most 256 shapes. Missing or unsupported cells, missing required support and different friction values among possible support blocks defer the frame. It never reads or loads a live world to fill gaps. The two configured budgets are shared across players/regions in 50 ms windows. Saturation sacrifices coverage, not unbounded work; allocation is first-come, not fair. The defaults do not promise full coverage at 600 players or bound execution time in milliseconds.
+
+The current scope uses a standing Survival body, ordinary gravity, default drag/friction modifiers and walk-speed setting, stable movement/jump/step attributes, no potion effects, no active item and no flight, sneaking, swimming, gliding, riptide or vehicle. The model starts from a supported rest hypothesis after five stationary frames close to the owner's position; it does not seed velocity from observed displacement. Teleports, impulses, observer loss, transitions and policy reloads reset it. Eight consecutive mismatches require reacquiring rest rather than following an unchecked new origin.
+
+Attributes and sprint state are sampled on the entity owner, not reconstructed from acknowledged attribute history. Entity collisions, client/server sprint transitions and other unmodeled influences can still cause diagnostic mismatches. Cache invalidation can leave coverage unavailable until chunks are resent naturally. This is why the integration remains observation-only; a mismatch is not proof of cheating. Full special-movement handling, independent client replays, safe predictor setbacks and distributed performance validation remain release gates.
 
 If NordCommands filters available commands, add `nordguard` to its allowed command labels. NordGuard still requires its own administration permission; making the label visible does not grant access.
 

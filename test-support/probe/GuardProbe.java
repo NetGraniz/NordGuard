@@ -36,7 +36,19 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if(action.equals("replicaedit") || action.equals("replicarestore")) {
+                if(action.equals("predictionprepare")) {
+                    var at=player.getLocation();int x=(at.getBlockX()>>4)*16+8,z=(at.getBlockZ()>>4)*16+8;
+                    for(int dx=-7;dx<=7;dx++)for(int dz=-7;dz<=7;dz++) {
+                        if(!Bukkit.isOwnedByCurrentRegion(at.getWorld(),(x+dx)>>4,(z+dz)>>4)
+                                || !at.getWorld().isChunkLoaded((x+dx)>>4,(z+dz)>>4))throw new AssertionError("Prediction fixture not owned/loaded");
+                        for(int y=80;y<=86;y++)at.getWorld().getBlockAt(x+dx,y,z+dz).setType(Material.AIR,false);
+                        at.getWorld().getBlockAt(x+dx,79,z+dz).setType(Material.STONE,false);
+                    }
+                    player.setSprinting(false);player.setSneaking(false);player.setFoodLevel(20);player.clearActiveItem();
+                    player.setVelocity(new org.bukkit.util.Vector());
+                    player.teleportAsync(new Location(at.getWorld(),x+.5,80,z+.5,0,0)).thenRun(()->
+                            player.getScheduler().run(this,ignored->getLogger().info("GUARD_PREDICTION_PREPARED "+(x+.5)+" 80 "+(z+.5)),null));
+                } else if(action.equals("replicaedit") || action.equals("replicarestore")) {
                     ReplicaNativeProbe.edit((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),player,action.equals("replicarestore"));
                     getLogger().info("GUARD_REPLICA_EDIT_SENT "+action);
                 } else if(action.equals("replicaeditcheck")) {

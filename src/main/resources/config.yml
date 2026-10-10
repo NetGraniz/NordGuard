@@ -49,4 +49,10 @@ packets:
   enabled: true
   # Experimental outbound block cache; not used for corrections. Leave off for normal use.
   world-replica: false
+prediction:
+  # Experimental packet integration. Requires both packet options above; never corrects or bans.
+  enabled: false
+  # Shared across all players/regions. Exhaustion defers; these are not 600-player capacity claims.
+  frames-per-second: 2000
+  cells-per-second: 250000
 

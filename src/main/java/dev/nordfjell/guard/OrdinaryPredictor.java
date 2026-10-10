@@ -52,6 +52,24 @@ final class OrdinaryPredictor {
     OrdinaryPhysics.State velocity() { return velocity; }
     boolean ground() { return ground; }
     int branches() { return seeded ? alternate == null ? 1 : 2 : 0; }
+    Geometry.Point alternatePosition() {return alternate==null?null:new Geometry.Point(alternate.x,alternate.y,alternate.z);}
+    boolean alternateGround() {return alternate!=null && alternate.ground;}
+    /** Covers every candidate from both branches, including step-up; caller adds the block-shape halo. */
+    Geometry.Box sweep(float speed,float jump,float step) {
+        if(!seeded)throw new IllegalStateException("Unseeded predictor");
+        var bounds=sweep(new Geometry.Point(x,y,z),velocity,speed,jump,step);
+        if(alternate==null)return bounds;
+        var b=sweep(alternatePosition(),alternate.velocity,speed,jump,step);
+        return new Geometry.Box(Math.min(bounds.minX(),b.minX()),Math.min(bounds.minY(),b.minY()),Math.min(bounds.minZ(),b.minZ()),
+                Math.max(bounds.maxX(),b.maxX()),Math.max(bounds.maxY(),b.maxY()),Math.max(bounds.maxZ(),b.maxZ()));
+    }
+    static Geometry.Box sweep(Geometry.Point p,OrdinaryPhysics.State v,float speed,float jump,float step) {
+        // Ground acceleration is <= speed; air acceleration <= .026. Sprint jumping adds <= .2 per axis.
+        double dx=Math.abs(v.vx())+Math.max(speed,.026f)+.2+.001;
+        double dz=Math.abs(v.vz())+Math.max(speed,.026f)+.2+.001;
+        return new Geometry.Box(p.x()-.3-dx,p.y()+Math.min(0,v.vy())-.001,p.z()-.3-dz,
+                p.x()+.3+dx,p.y()+1.8+Math.max(Math.max(0,v.vy()),jump)+step+.001,p.z()+.3+dz);
+    }
     private record Branch(double x, double y, double z, OrdinaryPhysics.State velocity, boolean ground) {}
 
     Result accept(Frame frame, OrdinaryPhysics.Context supplied, CollisionPhysics.Scene scene, float stepHeight) {

@@ -43,6 +43,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private NativePackets packets;
     private volatile boolean packetsEnabled;
     private volatile boolean replicaEnabled;
+    private volatile PredictionSettings predictionSettings;
+    private final SpatialBudget predictionFrameBudget=new SpatialBudget(),predictionCellBudget=new SpatialBudget();
     private volatile boolean shuttingDown;
     private final LongAdder packetEvents = new LongAdder(), packetDrainNanos = new LongAdder();
     private final SpatialBudget worldCopyBudget=new SpatialBudget(), worldDecodeBudget=new SpatialBudget(), worldMaterializeBudget=new SpatialBudget();
@@ -81,6 +83,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             nativeTeleport = new NativeTeleport();
             packetsEnabled = readPacketsEnabled();
             replicaEnabled = readReplicaEnabled();
+            predictionSettings=readPredictionSettings(packetsEnabled,replicaEnabled);
         } catch (Exception error) {
             getLogger().log(java.util.logging.Level.SEVERE, "NordGuard cannot start safely", error);
             Bukkit.getPluginManager().disablePlugin(this);
@@ -134,6 +137,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Object enabled=yaml.get("packets.world-replica",Boolean.FALSE);
         if(!(enabled instanceof Boolean value))throw new IllegalArgumentException("packets.world-replica must be boolean");
         return value;
+    }
+    private PredictionSettings readPredictionSettings(boolean enabled,boolean replica) throws Exception {
+        var yaml=new YamlConfiguration();yaml.load(new java.io.File(getDataFolder(),"config.yml"));
+        return PredictionSettings.read(yaml,enabled,replica);
     }
     @EventHandler(priority = EventPriority.MONITOR) public void join(PlayerJoinEvent event) { attach(event.getPlayer()); }
     @EventHandler(priority = EventPriority.MONITOR) public void quit(PlayerQuitEvent event) {
@@ -235,6 +242,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
                     if(session.worldSync!=null) {
                         detail=Arrays.copyOf(detail,detail.length+1);detail[detail.length-1]=session.worldSync.diagnostic();
                     }
+                    detail=Arrays.copyOf(detail,detail.length+1);detail[detail.length-1]=session.prediction==null?
+                            "Prediction disabled (observe-only prototype).":session.prediction.diagnostic();
                 }
                 final String[] response=detail;
                 if (sender instanceof Player receiver) receiver.getScheduler().run(this, ignored -> {
@@ -263,8 +272,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
             case "reload" -> {
                 try {
                     Policy next=readPolicy();boolean enabled=readPacketsEnabled(),replica=readReplicaEnabled();
+                    PredictionSettings prediction=readPredictionSettings(enabled,replica);
                     if(replica && blockGeometry==null)blockGeometry=NativeBlocks.bind();
-                    policy=next;replicaEnabled=replica;packetsEnabled=enabled;
+                    policy=next;replicaEnabled=replica;packetsEnabled=enabled;predictionSettings=prediction;
                     sender.sendMessage("NordGuard configuration reloaded; histories reset on next sample.");
                 }
                 catch (Exception error) { sender.sendMessage("Reload rejected; previous policy kept: " + error.getMessage()); }
@@ -300,6 +310,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
         PacketTimeline timeline;
         ClientWorld clientWorld;
         AcknowledgedWorld worldSync;
+        PacketPrediction prediction;
+        PredictionSettings seenPrediction;
         boolean packetAttachFailed;
         boolean seenReplica;
         final java.util.function.IntPredicate materializeBudget=cells->worldMaterializeBudget.acquire(System.nanoTime(),cells,1_000_000);
@@ -324,11 +336,11 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
         void packetTick(long now) {
             if (!packetsEnabled || packets == null) {
-                closePackets(); packetHandle = null; inbox = null; timeline = null; clientWorld=null;worldSync=null;return;
+                closePackets(); packetHandle = null; inbox = null; timeline = null; clientWorld=null;worldSync=null;prediction=null;return;
             }
             if (packetAttachFailed) return;
             if(packetHandle!=null && seenReplica!=replicaEnabled) {
-                closePackets();packetHandle=null;inbox=null;timeline=null;clientWorld=null;worldSync=null;
+                closePackets();packetHandle=null;inbox=null;timeline=null;clientWorld=null;worldSync=null;prediction=null;
                 // Removal and installation use the same channel event loop, in order.
             }
             if (packetHandle == null) {
@@ -340,7 +352,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                         bytes->worldDecodeBudget.acquire(System.nanoTime(),bytes,4*1024*1024),materializeBudget):null;
                 inbox = seenReplica?new PacketInbox(bytes -> worldCopyBudget.acquire(System.nanoTime(),bytes,8*1024*1024)):new PacketInbox();
                 timeline = new PacketTimeline(update -> {if(worldSync!=null)worldSync.stage(update);},
-                        seenReplica?event->worldSync.event(event.kind,event.id,event.nano):null);
+                        seenReplica?event->{worldSync.event(event.kind,event.id,event.nano);if(prediction!=null)prediction.event(event);}:null);
                 try { packetHandle = packets.attach(player, inbox); }
                 catch (ReflectiveOperationException error) {
                     packetAttachFailed = true;
@@ -350,13 +362,36 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 if (stopped || shuttingDown) { closePackets(); return; }
             }
             long started = System.nanoTime();
+            PredictionSettings settings=predictionSettings;
+            if(settings!=seenPrediction) {seenPrediction=settings;prediction=null;}
+            if(settings.enabled() && worldSync!=null && prediction==null) {
+                prediction=new PacketPrediction(worldSync::stateId,blockGeometry::state,worldSync::geometryRevision,
+                        cells->predictionCellBudget.acquire(System.nanoTime(),cells,predictionSettings.cellsPerSecond()),
+                        frames->predictionFrameBudget.acquire(System.nanoTime(),frames,predictionSettings.framesPerSecond()));
+            }
+            if(prediction!=null) {
+                var at=player.getLocation();
+                boolean eligible=!player.isDead() && player.getGameMode()==GameMode.SURVIVAL && !player.getAllowFlight()
+                        && !player.isFlying() && !player.isInsideVehicle() && !player.isGliding() && !player.isSwimming()
+                        && !player.isSneaking() && !player.isRiptiding() && !player.hasActiveItem()
+                        && player.getActivePotionEffects().isEmpty() && !player.hasPermission("nordguard.bypass")
+                        && attribute(player,Attribute.AIR_DRAG_MODIFIER,1)==1
+                        && attribute(player,Attribute.FRICTION_MODIFIER,1)==1 && player.getWalkSpeed()==.2f
+                        && at.getWorld().getKey().toString().equals(worldSync.dimension())
+                        && Math.abs(player.getBoundingBox().getHeight()-1.8)<1E-5
+                        && Math.abs(player.getBoundingBox().getWidthX()-.6)<1E-5;
+                prediction.refresh(new PacketPrediction.Context(eligible,(float)attribute(player,Attribute.MOVEMENT_SPEED,.1),
+                        (float)attribute(player,Attribute.JUMP_STRENGTH,.42),attribute(player,Attribute.GRAVITY,.08),
+                        (float)attribute(player,Attribute.STEP_HEIGHT,.6),player.isSprinting(),at.getWorld().getKey().toString(),
+                        at.getX(),at.getY(),at.getZ(),at.getYaw()));
+            }
             long droppedBefore=inbox.dropped();
             packetEvents.add(timeline.drain(inbox, now));
             if(worldSync!=null) {
-                if(inbox.dropped()!=droppedBefore)worldSync.invalidate("inbox overflow during drain");
+                if(inbox.dropped()!=droppedBefore){worldSync.invalidate("inbox overflow during drain");if(prediction!=null)prediction.reset("inbox_overflow");}
                 // Events can arrive during drain after the owner's initial sample timestamp.
                 worldSync.expire(System.nanoTime());
-                if(!packetHandle.active())worldSync.invalidate("inactive observer");
+                if(!packetHandle.active()){worldSync.invalidate("inactive observer");if(prediction!=null)prediction.reset("inactive_observer");}
             }
             timeline.transportActive(packetHandle.active());
             if (timeline.shouldProbe(now)) {
@@ -373,6 +408,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             }
         }
         void suspend(int ticks) {
+            if(prediction!=null)prediction.reset("owner_transition");
             // A temporary evidence reset must not discard the last supported return position.
             model.reset(); last = null; grace = Math.max(grace, ticks);
             pendingFall = 0; pendingTicks = 0; airborne = false;

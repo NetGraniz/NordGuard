@@ -16,7 +16,7 @@ final class AcknowledgedWorld {
     private int head,count,bytes,barriers,recentCount,recentCursor;
     private int minSection,sections,centerX,centerZ;
     private String dimension,reason="awaiting barrier";
-    private long sequence,acknowledged,commits,resets;
+    private long sequence,acknowledged,commits,resets,geometryRevision;
     private boolean prefixKnown;
 
     AcknowledgedWorld(ClientWorld confirmed,int minSection,int sections,String dimension,int centerX,int centerZ,
@@ -33,6 +33,7 @@ final class AcknowledgedWorld {
         }
         if(update instanceof WorldSnapshot.Invalidation) {invalidate("uncertain outbound data");return;}
         if(update instanceof WorldSnapshot.Retain retain) {
+            geometryRevision++;
             centerX=retain.x();centerZ=retain.z();
             confirmed.apply(retain,sections,minSection);return;
         }
@@ -66,6 +67,7 @@ final class AcknowledgedWorld {
         int slot=(head+count)%MAX_UPDATES;
         updates[slot]=update;sequences[slot]=++sequence;chunkX[slot]=x;chunkZ[slot]=z;
         count++;bytes+=update.estimatedBytes();reason="world changes in flight";
+        geometryRevision++;
     }
 
     void event(int kind,int id,long nano) {
@@ -85,6 +87,7 @@ final class AcknowledgedWorld {
             invalidate("out-of-order or expired world barrier");return;
         }
         long target=targets[0];
+        if(count>0 && sequences[head]<=target)geometryRevision++;
         while(count>0 && sequences[head]<=target) {
             WorldSnapshot.Update update=updates[head];
             if(interested(chunkX[head],chunkZ[head])) confirmed.apply(update,sections,minSection,materializeBudget);
@@ -101,7 +104,7 @@ final class AcknowledgedWorld {
     }
     void invalidate(String why) {
         confirmed.clear();Arrays.fill(updates,null);head=count=bytes=barriers=0;
-        prefixKnown=false;sequence++;resets++;reason=why;
+        prefixKnown=false;sequence++;resets++;geometryRevision++;reason=why;
     }
     private void setDimension(int min,int height,String key) {
         boolean valid=height>0 && height<=ChunkCodec.MAX_SECTIONS && min>=-2048 && min<=2048
@@ -119,6 +122,7 @@ final class AcknowledgedWorld {
     int bytes() {return bytes;}
     long acknowledged() {return acknowledged;}
     String dimension() {return dimension;}
+    long geometryRevision() {return geometryRevision;}
     String diagnostic() {
         return "World sync acknowledged="+prefixKnown+", sequence="+acknowledged+"/"+sequence+", pending="+count
                 +", bytes="+bytes+", barriers="+barriers+", commits="+commits+", resets="+resets
