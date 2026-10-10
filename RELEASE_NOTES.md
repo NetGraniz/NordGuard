@@ -21,7 +21,7 @@ Pong does not prove client obedience. Unknown data do not become air or trigger 
 
 ## Validation
 
-202 unit tests passed locally. Runtime results and remaining validation limits are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/v0.5.0-rc.3/TESTING.md). Synthetic model workloads are not evidence of capacity at 600 online players.
+202 unit tests passed locally and in GitHub Actions. The identical candidate JAR passed 87 full runtime assertions on Paper and 87 on Folia; both isolated servers stopped cleanly. Runtime results, a corrected test-fixture failure and remaining validation limits are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/v0.5.0-rc.3/TESTING.md). Synthetic model workloads are not evidence of capacity at 600 online players.
 
 The JAR contains no test probes, worlds, logs, player data or bundled Netty dependency.
 

@@ -21,7 +21,9 @@ final class ReplicaNativeProbe {
         Object level=player.getWorld().getClass().getMethod("getHandle").invoke(player.getWorld());
         Class<?> posType=type(loader,"net.minecraft.core.BlockPos");
         if(!restore) {
-            var at=player.getLocation();editX=at.getBlockX()+2;editY=at.getBlockY()+3;editZ=at.getBlockZ();
+            var at=player.getLocation();
+            // The fixture resends only the player's chunk; +2 can cross its edge at a random spawn.
+            editX=(at.getBlockX()>>4)*16+8;editY=at.getBlockY()+3;editZ=(at.getBlockZ()>>4)*16+8;
         }
         Object pos=posType.getConstructor(int.class,int.class,int.class).newInstance(editX,editY,editZ);
         Object original=level.getClass().getMethod("getBlockState",posType).invoke(level,pos);
