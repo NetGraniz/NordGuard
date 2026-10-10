@@ -24,6 +24,16 @@ class AcknowledgedWorldTest {
         f.sent(7,100);f.pong(99,200);assertEquals(0,f.raw.size());assertEquals(-1,f.value());
         f.pong(7,300);assertEquals(1,f.value());assertEquals(0,f.w.pending());assertEquals(0,f.w.bytes());
     }
+
+    @Test void selfContextDoesNotDiscardOrAcknowledgeWorldData() {
+        var f=new Fixture();f.seed();long revision=f.w.geometryRevision();
+        f.w.event(NativePackets.PLAYER_CONTEXT,0,250);
+        assertEquals(1,f.value());assertEquals(revision,f.w.geometryRevision());
+        f.w.stage(block(0,2));f.sent(2,300);
+        f.w.event(NativePackets.PLAYER_CONTEXT,0,350);
+        assertEquals(-1,f.value());assertEquals(1,f.w.pending());
+        f.pong(2,400);assertEquals(2,f.value());assertEquals(0,f.w.pending());
+    }
     @Test void oldBarrierCannotConfirmNewerUpdates() {
         var f=new Fixture();f.seed();f.sent(2,300);f.w.stage(block(0,2));f.pong(2,400);
         assertEquals(1,f.raw.stateId(0,80,0,-4));assertEquals(-1,f.value());assertEquals(1,f.w.pending());

@@ -9,8 +9,10 @@ const version=fs.readFileSync(path.join(project,'src/main/resources/plugin.yml')
 const build=path.resolve(__dirname,'../build/native-client'),launch=JSON.parse(fs.readFileSync(path.join(build,'launch.json'),'utf8'));
 const noDelay=process.env.NORD_NATIVE_NAGLE!=='1',ordinaryOnly=process.env.NORD_NATIVE_ORDINARY_ONLY==='1';
 const ordinaryDuration=Number(process.env.NORD_NATIVE_DURATION_MS||2000);
+const extended=process.env.NORD_NATIVE_EXTENDED==='1';
+const profile=process.env.NORD_NATIVE_PROFILE==='1';
 assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
-const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
+const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[],predictionCoverage=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label,timeout=60000){const start=Date.now();while(!fn()){
   if(Date.now()-start>timeout||serverExit||serverOutput.includes('GUARD_PROBE_FAIL'))throw Error('Timeout/server failure: '+label);
@@ -34,6 +36,16 @@ async function mode(next){const id=++sequence;await control({id,mode:next,
 async function stats(){const output=await marker('nordguard status',/PLACERATE: \d+/);const result={};
   for(const match of output.matchAll(/\b([A-Z]+): (\d+)/g))result[match[1]]=+match[2];
   result.corrections=+output.match(/corrections=(\d+)/)[1];return result;}
+async function recording(operation){
+  const args=[String(server.pid),operation];
+  if(operation==='JFR.start')args.push('name=NordGuardFixture','settings=profile');
+  else args.push('name=NordGuardFixture','filename='+path.join(root,'native-soak.jfr'));
+  const child=spawn(path.join(jdk,'bin/jcmd.exe'),args,{windowsHide:true,stdio:['ignore','pipe','pipe']});
+  let output='',code;for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>output+=chunk.toString());
+  child.on('error',error=>{output+=error.message;code=-1;});child.on('exit',value=>code=value);
+  await until(()=>code!==undefined,'test-server JFR '+operation,15000);assert.equal(code,0,output);
+  fs.appendFileSync(path.join(root,'native-soak-recording.log'),output);
+}
 async function prepare(terrain){await mode('idle');await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
   if(terrain)await marker('guardprobe terrain GuardFixture '+terrain,new RegExp('GUARD_TERRAIN '+terrain));
   await sleep(4000);
@@ -96,7 +108,37 @@ async function main(){
       if(issues.length){const issue=`native ${action}, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
       else pass(`native ${action}, ${delay}ms per direction${proxy.jitter?' + jitter':''}`);
       const inspect=await marker('nordguard inspect GuardFixture',/Prediction observe-only/);
+      const prediction=inspect.match(/seeds=(\d+), accepted=(\d+), mismatched=(\d+), deferred=(\d+), trials=(\d+)/);
+      assert(prediction,'Prediction diagnostic missing');
+      predictionCoverage.push({action,delay,seeds:+prediction[1],accepted:+prediction[2],mismatched:+prediction[3],deferred:+prediction[4],trials:+prediction[5]});
       fs.appendFileSync(path.join(root,'native-prediction.log'),inspect+'\n');
+    }
+  }
+  assert(predictionCoverage.some(p=>p.action==='walk'&&p.delay===0&&p.seeds>0&&p.accepted>0&&p.trials>0),
+    'Native ordinary prediction must actually seed and accept frames; zero coverage is not a pass');
+  pass('native ordinary predictor seeded and accepted real client frames without forced chunk resends');
+  if(extended){
+    proxy.delay=100;proxy.jitter=true;
+    for(const [scenario,action,terrain] of [['slabs','walk'],['ice','sprint'],['honey','walk'],['slime','jump'],
+      ['soul-sand','walk'],['speed-effect','sprint'],['jump-effect','jump'],['knockback','walk'],
+      ['web','walk','noweb'],['ladder','walk','climb'],['soak','jump']]){
+      await prepare(terrain);
+      if(!terrain&&scenario!=='soak'&&scenario!=='knockback')await marker('guardprobe ordinaryscenario GuardFixture '+scenario,/GUARD_ORDINARY_SCENARIO/);
+      await sleep(1000);const before=await stats(),origin=state();
+      if(scenario==='soak'&&profile)await recording('JFR.start');
+      await mode(action);
+      if(scenario==='knockback'){await sleep(1000);await marker('guardprobe ordinaryscenario GuardFixture knockback',/GUARD_ORDINARY_SCENARIO/);}
+      await sleep(scenario==='soak'?120000:scenario==='ladder'?2500:12000);const activeEnd=state();await mode('idle');await sleep(1500);
+      const after=await stats(),end=state(),issues=[];
+      if(scenario==='soak'&&profile)await recording('JFR.stop');
+      const vertical=activeEnd.y-origin.y;
+      if(scenario==='ladder' ? !(vertical>1) : !(activeEnd.travel>.1))issues.push('scenario did not produce native movement');
+      for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])if(after[check]!==before[check])issues.push('false positive '+check);
+      if(after.corrections!==before.corrections)issues.push('unexpected correction');
+      measurements.push({kind:'extended',scenario,action,terrain,delay:100,jitter:true,travel:activeEnd.travel,vertical,before,after,origin,end});
+      if(issues.length){const issue=`extended ${scenario}: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
+      else pass(`extended native ${scenario}, 100ms + jitter`);
+      fs.appendFileSync(path.join(root,'native-prediction.log'),await marker('nordguard inspect GuardFixture',/Prediction observe-only/)+'\n');
     }
   }
   if(!ordinaryOnly){
@@ -121,6 +163,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,passed,failures,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

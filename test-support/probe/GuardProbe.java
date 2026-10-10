@@ -36,7 +36,10 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if(action.equals("nativetrace")) {
+                if(action.equals("ordinaryscenario")) {
+                    NativeScenario.prepare(player,args[2]);
+                    getLogger().info("GUARD_ORDINARY_SCENARIO "+args[2]);
+                } else if(action.equals("nativetrace")) {
                     var guard=Bukkit.getPluginManager().getPlugin("NordGuard");
                     Field sessions=NordGuard.class.getDeclaredField("sessions");sessions.setAccessible(true);
                     Object session=((java.util.Map<?,?>)sessions.get(guard)).get(player.getUniqueId());
@@ -186,6 +189,8 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     getLogger().info("GUARD_CLIENT_DONE");
                 } else if (action.equals("prepare")) {
                     player.clearActiveItem();
+                    for(var effect:player.getActivePotionEffects())player.removePotionEffect(effect.getType());
+                    player.setFoodLevel(20);player.setSaturation(20);player.setVelocity(new org.bukkit.util.Vector());
                     Location at = player.getLocation();
                     int x = at.getBlockX(), z = at.getBlockZ(), y = 80;
                     for (int dx = -2; dx <= 24; dx++) for (int dz = -2; dz <= 2; dz++) {

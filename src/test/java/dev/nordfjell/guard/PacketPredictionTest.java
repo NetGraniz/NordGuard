@@ -92,7 +92,7 @@ class PacketPredictionTest {
         assertEquals(0,f.p.accepted());assertEquals(0,f.p.rejected());
     }
     @Test void allContextTransitionsClearTheSeed() {
-        for(int kind:new int[]{NativePackets.CLOSED,NativePackets.CONTEXT_CHANGE,NativePackets.TELEPORT,NativePackets.VELOCITY}) {
+        for(int kind:new int[]{NativePackets.CLOSED,NativePackets.CONTEXT_CHANGE,NativePackets.PLAYER_CONTEXT,NativePackets.TELEPORT,NativePackets.VELOCITY}) {
             var f=new Fixture();f.rest();f.emit(kind,0,0,0,0);f.frame(.5,80,.5);assertEquals(0,f.p.trials());
         }
     }

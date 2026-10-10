@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-rc.8 — preserve observed world across player metadata
+
+- Separate self attributes, effects and entity metadata from ambiguous world/barrier transitions. These packets still reset physics confidence and the observation-only predictor, but no longer discard the observed chunk stream or acknowledge pending block changes.
+- Keep dimension resets, uncertain world data, barrier ambiguity and observer loss conservative. No prediction-based punishment or default-enabled replica was added.
+- Add regressions for preserved confirmed geometry, pending changes that remain unknown until the matching barrier, and physics-confidence invalidation.
+- Extend the native fixture with terrain, effects, impulses, a two-minute patrol, explicit nonzero predictor coverage and optional isolated-server JFR recording. These helpers are not included in the plugin JAR.
+
 ## 0.5.0-rc.7 — bounded arrival-batch allowance
 
 - Carry unused horizontal allowance from unchanged owner ticks into subsequent movement batches. Repay existing debt first and cap the reserve at `movement.burst-ticks` times the current speed allowance. Spend only the amount needed by each batch, rather than discarding the entire reserve on its first movement.

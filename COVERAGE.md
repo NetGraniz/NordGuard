@@ -1,8 +1,8 @@
 # Wurst coverage map
 
-NordGuard 0.5.0-rc.7, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. Packet freshness can defer stationary owner samples; the timeline does not add new enforced cheat classifiers. Horizontal catch-up allowance is bounded and comes from owner ticks, not client packet counts.
+NordGuard 0.5.0-rc.8, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. Packet freshness can defer stationary owner samples; the timeline does not add new enforced cheat classifiers. Horizontal catch-up allowance is bounded and comes from owner ticks, not client packet counts.
 
-Stage-4 native-client tests reproduced Flight, SpeedHack, Spider and Jesus with the installed Wurst 7.56 client. Short default-setting reproductions are not a bypass audit. Legitimate movement also triggered corrections under batched TCP traffic, so stage 4 has not passed and movement CORRECT modes are not validated for production. See [TESTING.md](TESTING.md).
+Stage-4 native-client tests reproduced Flight, SpeedHack, Spider and Jesus with the installed Wurst 7.56 client. Short default-setting reproductions are not a bypass audit. Earlier candidates falsely corrected legitimate movement under batched TCP traffic; the specified short matrix passed on rc.7. That is not validation of every terrain, transition or production CORRECT mode. Stage 4 remains open. See [TESTING.md](TESTING.md).
 
 The feature catalog was checked against the [official Wurst source tree at f98551a](https://github.com/Wurst-Imperium/Wurst7/tree/f98551a3bfab97a1e70c340f91b334976c7fc4c2/src/main/java/net/wurstclient/hacks). The movement implementations linked below were inspected to design synthetic cases. Other rows classify scope; they are not individual source audits or exploit reproductions. No Wurst code is bundled or copied.
 

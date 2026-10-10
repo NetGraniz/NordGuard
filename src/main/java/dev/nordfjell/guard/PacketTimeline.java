@@ -55,7 +55,8 @@ final class PacketTimeline {
         if(p.kind==NativePackets.WORLD_DATA) {worldSink.accept(p.payload);return;}
         if (p.kind == NativePackets.ATTACHED) { attached = true; reason = "awaiting barrier"; }
         else if (p.kind == NativePackets.CLOSED) { attached = false; invalidate("observer unavailable"); }
-        else if (p.kind == NativePackets.WORLD_CHANGE || p.kind == NativePackets.CONTEXT_CHANGE) invalidate("outbound state changed");
+        else if (p.kind == NativePackets.WORLD_CHANGE || p.kind == NativePackets.CONTEXT_CHANGE
+                || p.kind == NativePackets.PLAYER_CONTEXT) invalidate("outbound state changed");
         else if (p.kind == NativePackets.BARRIER_SENT) {
             if (pending == pingIds.length) { invalidate("barrier capacity"); }
             for (int i = 0; i < pending; i++) if (pingIds[i] == p.id) { invalidate("barrier ID collision"); return; }

@@ -71,6 +71,9 @@ final class AcknowledgedWorld {
     }
 
     void event(int kind,int id,long nano) {
+        // Self attributes/effects/metadata reset physics, not the observed block stream.
+        // They do not acknowledge pending blocks or change the ordered world barriers.
+        if(kind==NativePackets.PLAYER_CONTEXT)return;
         if(kind==NativePackets.CLOSED || kind==NativePackets.CONTEXT_CHANGE) {
             invalidate(kind==NativePackets.CLOSED?"observer unavailable":"context/barrier ambiguity");return;
         }

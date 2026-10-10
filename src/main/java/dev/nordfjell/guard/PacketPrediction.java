@@ -57,7 +57,7 @@ final class PacketPrediction {
             if(pendingTeleport && e.id==teleportId) {pendingTeleport=false;reset("teleport_ack_reacquire_rest");}
             return;
         }
-        if(e.kind==NativePackets.CLOSED || e.kind==NativePackets.CONTEXT_CHANGE || e.kind==NativePackets.TELEPORT
+        if(e.kind==NativePackets.CLOSED || e.kind==NativePackets.CONTEXT_CHANGE || e.kind==NativePackets.PLAYER_CONTEXT || e.kind==NativePackets.TELEPORT
                 || e.kind==NativePackets.VELOCITY || e.kind==NativePackets.ATTACHED) {reset("packet_context_transition");return;}
         if(e.kind==NativePackets.WORLD_DATA && (e.payload instanceof WorldSnapshot.Reset || e.payload instanceof WorldSnapshot.Invalidation)) {
             reset("world_transition");return;

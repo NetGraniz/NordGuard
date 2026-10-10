@@ -36,6 +36,13 @@ class PacketTimelineTest {
         var c = new PacketInbox.Cursor(); c.kind = kind; c.nano = time; c.id = id; return c;
     }
     private static void attach(PacketTimeline t) { t.accept(event(NativePackets.ATTACHED, 1, 0)); }
+
+    @Test void selfContextStillInvalidatesPhysicsConfidence() {
+        var t=new PacketTimeline();attach(t);
+        t.accept(event(NativePackets.BARRIER_SENT,100,7));t.accept(event(NativePackets.PONG,200,7));
+        assertTrue(t.prefixAcknowledged());
+        t.accept(event(NativePackets.PLAYER_CONTEXT,300,0));assertFalse(t.prefixAcknowledged());
+    }
     @Test void queueBoundAndWraparound() {
         var q = new PacketInbox(); var c = new PacketInbox.Cursor();
         for (int round = 0; round < 4; round++) {

@@ -20,7 +20,7 @@ import org.bukkit.entity.Player;
 final class NativePackets {
     static final int MOVE=1, TICK_END=2, INPUT=3, TELEPORT=4, TELEPORT_ACK=5,
             VELOCITY=6, PONG=7, WORLD_CHANGE=8, CONTEXT_CHANGE=9, CLOSED=10,
-            BARRIER_SENT=11, ATTACHED=12, WORLD_DATA=13;
+            BARRIER_SENT=11, ATTACHED=12, WORLD_DATA=13, PLAYER_CONTEXT=14;
     private static final String GAME="net.minecraft.network.protocol.game.";
     private static final String COMMON="net.minecraft.network.protocol.common.";
     private static final MethodHandles.Lookup LOOKUP=MethodHandles.publicLookup();
@@ -311,7 +311,7 @@ final class NativePackets {
         else if(contextChanges.contains(packet.getClass())) h.marker(CONTEXT_CHANGE,0);
         else {
             MethodHandle getter=selfContext.get(packet.getClass());
-            if(getter!=null && (int)getter.invokeExact(packet)==h.entityId) h.marker(CONTEXT_CHANGE,h.entityId);
+            if(getter!=null && (int)getter.invokeExact(packet)==h.entityId) h.marker(PLAYER_CONTEXT,h.entityId);
         }
     }
 }
