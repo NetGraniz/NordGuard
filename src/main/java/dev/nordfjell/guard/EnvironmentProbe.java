@@ -17,7 +17,11 @@ public final class EnvironmentProbe {
                 || material==Material.SOUL_SAND || material==Material.BUBBLE_COLUMN;
     }).collect(java.util.stream.Collectors.toUnmodifiableSet());
     public record Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
-                              boolean liquid, boolean liquidSurface, boolean web) {
+                              boolean liquid, boolean liquidSurface, boolean web, double supportY) {
+        Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
+                    boolean liquid, boolean liquidSurface, boolean web) {
+            this(known, ground, wall, special, clear, liquid, liquidSurface, web, Double.NaN);
+        }
         Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear) {
             this(known, ground, wall, special, clear, false, false, false);
         }
@@ -35,6 +39,7 @@ public final class EnvironmentProbe {
         var inside = body.clone().expand(-.03);
         boolean ground = false, wall = false, special = false, clear = true;
         boolean liquid = false, liquidSurface = false, web = false;
+        double supportY = Double.NaN;
         int count = 0;
         for (int x = floor(body.getMinX() - .05); x <= floor(body.getMaxX() + .05); x++)
             for (int z = floor(body.getMinZ() - .05); z <= floor(body.getMaxZ() + .05); z++) {
@@ -61,13 +66,18 @@ public final class EnvironmentProbe {
                     for (var local : block.getCollisionShape().getBoundingBoxes()) {
                         var shape = local.clone().shift(x, y, z);
                         ground |= feet.overlaps(shape);
+                        // Reuse the bounded scan: a floor below the feet is not current ground contact.
+                        if (shape.getMaxY() <= at.getY() + .01 && shape.getMaxY() >= at.getY() - 1
+                                && feet.getMaxX() > shape.getMinX() && feet.getMinX() < shape.getMaxX()
+                                && feet.getMaxZ() > shape.getMinZ() && feet.getMinZ() < shape.getMaxZ()
+                                && (Double.isNaN(supportY) || shape.getMaxY() > supportY)) supportY = shape.getMaxY();
                         wall |= walls.overlaps(shape) && shape.getMaxY() > at.getY() + .1
                                 && shape.getMinY() < body.getMaxY() - .1;
                         clear &= !inside.overlaps(shape);
                     }
                 }
             }
-        return new Environment(true, ground, wall, special, clear, liquid, liquidSurface && !ground, web);
+        return new Environment(true, ground, wall, special, clear, liquid, liquidSurface && !ground, web, supportY);
     }
     private static int floor(double value) { return (int) Math.floor(value); }
 }

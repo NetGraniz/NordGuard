@@ -44,6 +44,9 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     Object movement=model.get(session);
                     Field debt=movement.getClass().getDeclaredField("speedDebt");debt.setAccessible(true);
                     Field scores=movement.getClass().getDeclaredField("scores");scores.setAccessible(true);
+                    Field momentum=movement.getClass().getDeclaredField("jumpMomentum");momentum.setAccessible(true);
+                    Field dy=movement.getClass().getDeclaredField("lastDy");dy.setAccessible(true);
+                    Field frame=movement.getClass().getDeclaredField("last");frame.setAccessible(true);
                     Field last=session.getClass().getDeclaredField("last");last.setAccessible(true);
                     int[] count={0};
                     player.getScheduler().runAtFixedRate(this,trace->{
@@ -52,11 +55,24 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                             getLogger().info("GUARD_TRACE "+count[0]+" x="+at.getX()+" y="+at.getY()
                                     +" ownerDelta="+(previous==null?-1:at.distance(previous))
                                     +" speed="+player.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED).getValue()
+                                    +" momentum="+momentum.getDouble(movement)+" dy="+dy.getDouble(movement)
+                                    +" frame="+frame.get(movement)
                                     +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]);
                             if(++count[0]>=100)trace.cancel();
                         } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
                     },null,1,1);
                     getLogger().info("GUARD_TRACE_STARTED");
+                } else if(action.equals("supportfloor")) {
+                    Location floor=player.getLocation();
+                    var grounded=EnvironmentProbe.inspect(player,floor);
+                    var rising=EnvironmentProbe.inspect(player,floor.clone().add(0,.42,0));
+                    var distant=EnvironmentProbe.inspect(player,floor.clone().add(0,1.01,0));
+                    if(!grounded.known() || !grounded.ground() || !Double.isFinite(grounded.supportY())
+                            || Math.abs(grounded.supportY()-floor.getY())>.01
+                            || !rising.known() || rising.ground() || !Double.isFinite(rising.supportY()) || Math.abs(rising.supportY()-floor.getY())>.01
+                            || !distant.known() || !Double.isNaN(distant.supportY()))
+                        throw new AssertionError("Bounded support floor classification");
+                    getLogger().info("GUARD_SUPPORT_FLOOR_PASS");
                 } else if(action.equals("predictionprepare")) {
                     var at=player.getLocation();int x=(at.getBlockX()>>4)*16+8,z=(at.getBlockZ()>>4)*16+8;
                     for(int dx=-7;dx<=7;dx++)for(int dz=-7;dz<=7;dz++) {

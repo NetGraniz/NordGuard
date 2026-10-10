@@ -325,6 +325,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         int teleportSequence;
         boolean seenTeleportSequence;
         long lastNanos, fallEvents, fallBaseline, pendingBaseline, fallOverrides, overrideBaseline, pendingOverrides;
+        long sampledClientTicks = -1, sampledClientMoves = -1;
         double fallRawDamage, rawBaseline, pendingRawBaseline;
         double pendingFall;
         double impulseSpeed, impulseY;
@@ -438,6 +439,11 @@ public final class NordGuard extends JavaPlugin implements Listener {
         void sample(long now) throws Exception {
             if (setbacks.expired(now)) grace(player);
             observePackets(now);
+            boolean receivedMovement = true;
+            if (timeline != null && packetHandle != null && packetHandle.active()) {
+                receivedMovement = timeline.ticks() != sampledClientTicks || timeline.moves() != sampledClientMoves;
+                sampledClientTicks = timeline.ticks(); sampledClientMoves = timeline.moves();
+            }
             int sequence = nativeTeleport.sequence(player);
             if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
             teleportSequence = sequence; seenTeleportSequence = true;
@@ -462,6 +468,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (!Double.isFinite(at.getX()) || !Double.isFinite(at.getY()) || !Double.isFinite(at.getZ())) { suspend(20); return; }
             if (last != null && at.getWorld() != last.getWorld()) { suspend(current.transitionGrace()); return; }
             boolean stationary = last != null && at.distanceSquared(last) < 1.0E-10;
+            if (stationary && !receivedMovement && pendingFall == 0) {
+                model.transportIdleTick();
+                return;
+            }
             if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) {
                 model.stationaryTick();
                 return;
@@ -507,7 +517,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             }
             var result = model.accept(new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
                     environment.wall(), false, speed, jump, attribute(player, Attribute.STEP_HEIGHT, .6),
-                    attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier), current);
+                    attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier), current, environment.supportY());
             boolean phased=false;
             if(current.modes().get(Check.NOCLIP)!=Policy.Mode.OFF && last!=null && environment.clear() && player.getBoundingBox().getHeight()>=1.5
                     && Math.abs(at.getY()-last.getY())<.05 && at.distanceSquared(last)>.64 && at.distanceSquared(last)<16) {

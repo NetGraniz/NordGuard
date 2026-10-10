@@ -124,6 +124,7 @@ final class PacketTimeline {
     boolean prefixAcknowledged() { return attached && acknowledgedRevision == revision; }
     int input() { return input; }
     long ticks() { return tickSequence; }
+    long moves() { return moves; }
     long historySize() { return Math.min(historySequence, HISTORY); }
     String[] diagnostic() {
         String[] lines = new String[(int) Math.min(historySequence, 8) + 2];

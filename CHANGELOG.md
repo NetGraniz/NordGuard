@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0-rc.6 — stage 4 transition corrections
+
+- Recognize one, two or three cumulative ordinary jump steps before granting bounded sprint-jump momentum. Keep micro-hops and implausible high takeoffs outside that match.
+- Reuse the existing bounded collision scan to find a nearby supporting floor without treating it as current ground contact. Recognize a missed landing/takeoff only after recent descent, a floor-crossing fall step and at least ten sampled movement ticks since the last recognized jump. Preserve unaccounted fall height.
+- When the active packet observer received neither movement nor TickEnd and the owner position is unchanged, defer vertical evidence while repaying existing speed debt. Changed positions and received stationary movement still get checked; no future speed credit is stored. Observer-disabled/unavailable sessions retain the existing owner-only fallback.
+- Extend native traces and ordinary-case duration controls. Retry short Windows test-control file locks with a fixed limit; unexpected errors fail the fixture.
+- Keep OBSERVE defaults. This remains an experimental candidate; passing narrow transition regressions does not close the full release gate.
+
 ## 0.5.0-rc.5 — stage 4 investigation
 
 - Repay horizontal speed debt on skipped, unchanged grounded owner ticks without extra world queries, timers or banked future credit. Keep excessive-average-speed detection and untrusted reset origins covered by unit tests.

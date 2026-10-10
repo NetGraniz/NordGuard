@@ -19,26 +19,41 @@ final class MovementModel {
     }
     record Result(EnumSet<Check> flags, double landingDistance, boolean clean) {}
     private Frame last;
-    private int airTicks, groundTicks;
-    private double lastDy, peakY, speedDebt, jumpMomentum;
+    private int airTicks, groundTicks, jumpAge, descentAge;
+    private double lastDy, peakY, speedDebt, jumpMomentum, descentDy;
     private boolean falling;
     private final double[] scores = new double[Check.values().length];
 
     void reset() {
-        last = null; airTicks = groundTicks = 0; lastDy = speedDebt = jumpMomentum = 0; falling = false;
+        last = null; airTicks = groundTicks = 0; jumpAge = descentAge = 100;
+        lastDy = speedDebt = jumpMomentum = descentDy = 0; falling = false;
         java.util.Arrays.fill(scores, 0);
     }
 
     /** Account for an unchanged grounded owner tick without repeating world queries. No banked credit. */
     void stationaryTick() {
         if (last == null || !last.ground() || last.exempt() || last.medium()) return;
+        jumpAge = Math.min(100, jumpAge + 1);
         jumpMomentum *= .91;
         speedDebt = Math.max(0, speedDebt - last.speed() - jumpMomentum - .02);
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
     }
 
+    /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
+    void transportIdleTick() {
+        if (last == null || last.exempt() || last.medium()) return;
+        speedDebt = Math.max(0, speedDebt - last.speed() - jumpMomentum - .02);
+        int speed = Check.SPEED.ordinal();
+        scores[speed] = Math.max(0, scores[speed] - .25);
+        // Preserve vertical history until data arrives. No negative debt or stored future credit.
+    }
+
     Result accept(Frame next, Policy policy) {
+        return accept(next, policy, Double.NaN);
+    }
+
+    Result accept(Frame next, Policy policy, double supportY) {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
             reset(); last = next; peakY = next.y();
@@ -52,6 +67,8 @@ final class MovementModel {
             return new Result(flags, 0, false);
         }
         groundTicks = next.ground() && last.ground() ? Math.min(100, groundTicks + 1) : 0;
+        jumpAge = Math.min(100, jumpAge + 1);
+        descentAge = Math.min(100, descentAge + 1);
         score(Check.NOSLOW, groundTicks >= 6 && !next.medium() && !last.medium()
                 && next.useMultiplier() < .99 && last.useMultiplier() < .99
                 && horizontal > next.speed() * next.useMultiplier() + .035 + jumpMomentum, policy, flags);
@@ -73,17 +90,31 @@ final class MovementModel {
             peakY = next.y(); lastDy = dy; last = next;
             return new Result(flags, 0, supportedIdle);
         }
-        // Sprint-jump impulse belongs to a plausible jump, not arbitrary client micro-hops.
+        // Owner snapshots can coalesce the first few native steps of a jump.
+        // Match their cumulative height; do not grant momentum to arbitrary micro-hops.
         jumpMomentum *= .91;
-        if (last.ground() && !next.ground() && dy >= next.jump() * .65
-                && dy <= next.jump() + .07) jumpMomentum = .2;
+        int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity()) : 0;
+        // A batched landing/takeoff may have no grounded owner snapshot at all.
+        // Require server collision support and descent near that floor, not the client ground bit.
+        boolean missedLanding = !last.ground() && !next.ground() && Double.isFinite(supportY)
+                && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0 && dy > 0
+                && last.y() >= supportY && last.y() - supportY <= .6
+                && last.y() + (descentDy - next.gravity()) * .98 <= supportY + .01;
+        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - supportY, next.jump(), next.gravity());
+        if (jumpSteps != 0) {
+            jumpMomentum = .2;
+            for (int i = 1; i < jumpSteps; i++) jumpMomentum *= .91;
+            airTicks = 0;
+            jumpAge = 0;
+            descentAge = 100;
+        }
         double allowed = next.speed() + jumpMomentum + .02;
         speedDebt = Math.min(100, Math.max(0, speedDebt + horizontal - allowed));
         score(Check.SPEED, speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
         if (next.ground()) {
             score(Check.HIGHJUMP, dy > next.step() + policy.verticalMargin(), policy, flags);
         } else {
-            score(Check.HIGHJUMP, dy > next.jump() + policy.verticalMargin(), policy, flags);
+            score(Check.HIGHJUMP, jumpSteps == 0 && dy > next.jump() + policy.verticalMargin(), policy, flags);
         }
         if (!next.ground()) airTicks++; else airTicks = 0;
         double expectedDy = (lastDy - next.gravity()) * 0.98;
@@ -97,10 +128,23 @@ final class MovementModel {
         else peakY = Math.max(peakY, next.y());
         double landing = next.ground() && falling ? Math.max(0, peakY - next.y()) : 0;
         if (next.ground()) { falling = false; peakY = next.y(); }
+        if (dy < -.001) { descentDy = dy; descentAge = 0; }
+        else if (dy > .001) descentAge = 100;
         lastDy = dy; last = next;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
         return new Result(flags, landing, clean && speedDebt < 0.01);
+    }
+
+    private static int jumpSteps(double height, double jump, double gravity) {
+        if (jump <= 0 || gravity <= 0 || height <= 0) return 0;
+        double cumulative = 0, velocity = jump;
+        for (int ticks = 1; ticks <= 3 && velocity > 0; ticks++) {
+            cumulative += velocity;
+            if (Math.abs(height - cumulative) <= .035) return ticks;
+            velocity = (velocity - gravity) * .98;
+        }
+        return 0;
     }
 
     private void score(Check check, boolean suspicious, Policy policy, EnumSet<Check> flags) {

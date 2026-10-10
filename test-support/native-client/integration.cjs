@@ -8,6 +8,8 @@ assert(path.basename(root).startsWith('nordguard-test-')&&!fs.existsSync(root),'
 const version=fs.readFileSync(path.join(project,'src/main/resources/plugin.yml'),'utf8').match(/^version: (.+)$/m)[1].trim();
 const build=path.resolve(__dirname,'../build/native-client'),launch=JSON.parse(fs.readFileSync(path.join(build,'launch.json'),'utf8'));
 const noDelay=process.env.NORD_NATIVE_NAGLE!=='1',ordinaryOnly=process.env.NORD_NATIVE_ORDINARY_ONLY==='1';
+const ordinaryDuration=Number(process.env.NORD_NATIVE_DURATION_MS||2000);
+assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
 const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label,timeout=60000){const start=Date.now();while(!fn()){
@@ -18,8 +20,13 @@ async function marker(command,pattern){const offset=serverOutput.length;server.s
   await until(()=>pattern.test(serverOutput.slice(offset)),command);return serverOutput.slice(offset);}
 function pass(label){passed.push(label);console.log('PASS: '+label);}
 function state(){try{return JSON.parse(fs.readFileSync(path.join(root,'client/state.json'),'utf8'));}catch{return {};}}
-function control(value){const file=path.join(root,'client/control.json');fs.writeFileSync(file+'.tmp',JSON.stringify(value));fs.renameSync(file+'.tmp',file);}
-async function mode(next){const id=++sequence;control({id,mode:next});
+async function control(value){const file=path.join(root,'client/control.json');fs.writeFileSync(file+'.tmp',JSON.stringify(value));
+  for(let attempt=0;;attempt++){try{fs.renameSync(file+'.tmp',file);return}catch(error){
+    if(!['EPERM','EBUSY','EACCES'].includes(error.code)||attempt>=30)throw error;
+    await sleep(10); // Windows may briefly lock the destination while the native fixture reads it.
+  }}
+}
+async function mode(next){const id=++sequence;await control({id,mode:next});
   await until(()=>{if(fs.existsSync(path.join(root,'client/failure.txt')))throw Error(fs.readFileSync(path.join(root,'client/failure.txt'),'utf8'));
     if(clientExit)throw Error('Native client exited: '+clientOutput.slice(-2000));return state().id===id;},'client mode '+next,20000);}
 async function stats(){const output=await marker('nordguard status',/PLACERATE: \d+/);const result={};
@@ -36,7 +43,7 @@ async function launchClient(wurst){
   fs.copyFileSync(path.join(build,'NativeClientProbe.jar'),path.join(dir,'mods/NativeClientProbe.jar'));
   if(wurst)fs.copyFileSync(launch.wurst,path.join(dir,'mods',path.basename(launch.wurst)));
   const launchId=++sequence;
-  control({id:launchId,mode:'idle'});
+  await control({id:launchId,mode:'idle'});
   clientOutput='';clientExit=false;
   client=spawn(path.join(jdk,'bin/java.exe'),['-Xms256M','-Xmx1600M','--enable-native-access=ALL-UNNAMED',
     '-Dnordguard.fixture='+dir,'-cp',launch.classpath,'net.fabricmc.loader.impl.launch.knot.KnotClient',
@@ -70,12 +77,14 @@ async function main(){
     .replace('world-replica: false','world-replica: true').replace('  enabled: false','  enabled: true'));
   await marker('nordguard reload',/configuration reloaded/);await proxy.start();
   await launchClient(false);
+  await prepare();await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);
+  pass('native server floor support is separate from actual ground contact');
   for(const delay of [0,100,300]){
     proxy.delay=delay;proxy.jitter=delay===300;
     for(const action of ['walk','sprint','jump','sneak']){
       await prepare();const before=await stats(),origin=state();
-      if(action==='sprint'&&delay===100)await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
-      await mode(action);await sleep(2000);await mode('idle');await sleep(1200);
+      if(action==='jump'||action==='sprint'&&delay===100)await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
+      await mode(action);await sleep(ordinaryDuration);await mode('idle');await sleep(1200);
       const after=await stats(),end=state(),distance=Math.hypot(end.x-origin.x,end.z-origin.z);
       measurements.push({kind:'ordinary',delay,jitter:proxy.jitter,action,distance,before,after,clientTicks:end.ticks-origin.ticks});
       const issues=[];
@@ -102,7 +111,7 @@ async function main(){
     }
   }
   }
-  assert(!/Deferred player check after internal error|Cannot read world asynchronously|Packet diagnostics disabled for session/.test(serverOutput));
+  assert(!/Deferred player check after internal error|Cannot read world asynchronously|Packet diagnostics disabled for session|IllegalAccessError|GUARD_PROBE_FAIL/.test(serverOutput));
   pass('no NordGuard internal or region-access errors');
   if(failures.length)throw Error(failures.join('; '));
 }
@@ -110,6 +119,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,passed,failures,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,passed,failures,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();
