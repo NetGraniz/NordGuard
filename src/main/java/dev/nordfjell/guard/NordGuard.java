@@ -468,7 +468,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (!Double.isFinite(at.getX()) || !Double.isFinite(at.getY()) || !Double.isFinite(at.getZ())) { suspend(20); return; }
             if (last != null && at.getWorld() != last.getWorld()) { suspend(current.transitionGrace()); return; }
             boolean stationary = last != null && at.distanceSquared(last) < 1.0E-10;
-            if (stationary && !receivedMovement && pendingFall == 0) {
+            // Grounded idle samples must still refresh supported return anchors on the normal cadence.
+            if (stationary && airborne && !receivedMovement && pendingFall == 0) {
                 model.transportIdleTick();
                 return;
             }

@@ -62,6 +62,18 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                         } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
                     },null,1,1);
                     getLogger().info("GUARD_TRACE_STARTED");
+                } else if(action.equals("idleanchor")) {
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field sessions=NordGuard.class.getDeclaredField("sessions");sessions.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)sessions.get(guard)).get(player.getUniqueId());
+                    Field safe=session.getClass().getDeclaredField("safe");safe.setAccessible(true);
+                    Field created=session.getClass().getDeclaredField("safeCreatedNanos");created.setAccessible(true);
+                    Location anchor=(Location)safe.get(session);
+                    if(anchor==null || anchor.getWorld()!=player.getWorld() || anchor.distanceSquared(player.getLocation())>.01
+                            || System.nanoTime()-created.getLong(session)>1_000_000_000L
+                            || !EnvironmentProbe.inspect(player,anchor).ground())
+                        throw new AssertionError("Grounded idle return anchor must remain fresh");
+                    getLogger().info("GUARD_IDLE_ANCHOR_PASS");
                 } else if(action.equals("supportfloor")) {
                     Location floor=player.getLocation();
                     var grounded=EnvironmentProbe.inspect(player,floor);

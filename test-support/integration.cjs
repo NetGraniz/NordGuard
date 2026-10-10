@@ -184,6 +184,8 @@ async function main() {
   await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
   await marker('guardprobe setback GuardFixture',/GUARD_SETBACK_READY/);
   await sleep(4000);
+  await marker('guardprobe idleanchor GuardFixture',/GUARD_IDLE_ANCHOR_PASS/);
+  pass('grounded idle keeps a fresh geometrically supported return anchor');
   const supported=bot.entity.position.clone();
   let setback=false;
   const forced=()=>{setback=true};
