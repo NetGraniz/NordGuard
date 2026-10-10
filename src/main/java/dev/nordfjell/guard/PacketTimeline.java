@@ -120,6 +120,7 @@ final class PacketTimeline {
     long acknowledgements() { return acks; }
     long resets() { return resets; }
     boolean teleportPending() { return awaitingTeleport; }
+    int pendingTeleportId() { return teleportId; }
     boolean prefixAcknowledged() { return attached && acknowledgedRevision == revision; }
     int input() { return input; }
     long ticks() { return tickSequence; }

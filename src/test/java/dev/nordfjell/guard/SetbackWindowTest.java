@@ -42,4 +42,8 @@ class SetbackWindowTest {
         assertTrue(SetbackWindow.freshAnchor(100,100,4096));
         for(double d:new double[]{4096.01,-1,Double.NaN,Double.POSITIVE_INFINITY})assertFalse(SetbackWindow.freshAnchor(100,100,d));
     }
+    @Test void movementBetweenTeleportAndOwnerCompletionDoesNotRequireExactPositionEquality() {
+        assertTrue(SetbackWindow.nearby(1.5*1.5));
+        assertFalse(SetbackWindow.nearby(Double.NaN));assertFalse(SetbackWindow.nearby(4097));
+    }
 }

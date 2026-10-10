@@ -159,4 +159,10 @@ class PacketPredictionTest {
         for(int i=0;i<4;i++)f.frame(.5,80,.5);
         assertEquals(1,f.p.seeds());f.frame(.5,80,.5);assertEquals(2,f.p.seeds());assertEquals(0,f.p.rejected());
     }
+    @Test void lateEnabledPredictorInheritsOutstandingTeleportFromTimeline() {
+        var f=new Fixture();f.p.awaitTeleport(23);
+        for(int i=0;i<10;i++)f.frame(.5,80,.5);assertEquals(0,f.p.seeds());
+        f.q.event(NativePackets.TELEPORT_ACK,f.nano,23,0,0,0,0,0,0);assertTrue(f.q.poll(f.e));f.p.event(f.e);
+        for(int i=0;i<5;i++)f.frame(.5,80,.5);assertEquals(1,f.p.seeds());
+    }
 }

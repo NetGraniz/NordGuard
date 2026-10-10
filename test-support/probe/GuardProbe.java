@@ -88,6 +88,17 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     getLogger().info("GUARD_STALL_DONE");
                 } else if (action.equals("actions")) {
                     actionSuite(player);
+                } else if(action.equals("returnstate")) {
+                    var guard=(NordGuard)Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field map=NordGuard.class.getDeclaredField("sessions");map.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)map.get(guard)).get(player.getUniqueId());
+                    for(String name:new String[]{"safe","safeCreatedNanos","teleporting","originRevision","grace"}) {
+                        Field f=session.getClass().getDeclaredField(name);f.setAccessible(true);
+                        getLogger().info("GUARD_RETURN_STATE "+name+"="+f.get(session));
+                    }
+                    getLogger().info("GUARD_RETURN_STATE now="+System.nanoTime()+" environment="+EnvironmentProbe.inspect(player,player.getLocation())
+                            +" climbing="+player.isClimbing());
+                    getLogger().info("GUARD_RETURN_STATE_DONE");
                 } else if(action.equals("setbackwindow")) {
                     var guard=(NordGuard)Bukkit.getPluginManager().getPlugin("NordGuard");
                     Field map=NordGuard.class.getDeclaredField("sessions");map.setAccessible(true);

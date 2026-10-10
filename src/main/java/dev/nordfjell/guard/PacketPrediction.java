@@ -48,9 +48,10 @@ final class PacketPrediction {
         context=next;
     }
     void reset(String why) {model.clear();rest=0;positioned=moved=hasPosition=badTick=rotated=false;lastTick=0;reason=why;}
+    void awaitTeleport(int id) {pendingTeleport=true;teleportId=id;reset("awaiting_teleport_ack");}
     void event(PacketInbox.Cursor e) {
         if(e.kind==NativePackets.TELEPORT) {
-            pendingTeleport=true;teleportId=e.id;reset("awaiting_teleport_ack");return;
+            awaitTeleport(e.id);return;
         }
         if(e.kind==NativePackets.TELEPORT_ACK) {
             if(pendingTeleport && e.id==teleportId) {pendingTeleport=false;reset("teleport_ack_reacquire_rest");}

@@ -371,6 +371,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 prediction=new PacketPrediction(worldSync::stateId,blockGeometry::state,worldSync::geometryRevision,
                         cells->predictionCellBudget.acquire(System.nanoTime(),cells,predictionSettings.cellsPerSecond()),
                         frames->predictionFrameBudget.acquire(System.nanoTime(),frames,predictionSettings.framesPerSecond()));
+                if(timeline.teleportPending())prediction.awaitTeleport(timeline.pendingTeleportId());
             }
             if(prediction!=null) {
                 var at=player.getLocation();
@@ -539,7 +540,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                     && at.getWorld().getWorldBorder().isInside(safe)) {
                 var targetEnvironment = EnvironmentProbe.inspect(player, safe);
                 if (targetEnvironment.known() && targetEnvironment.ground() && targetEnvironment.clear() && !targetEnvironment.special()
-                        && !targetEnvironment.liquid() && !targetEnvironment.web()) {
+                        && !targetEnvironment.liquid()) {
                     Location target = safe.clone(); target.setYaw(at.getYaw()); target.setPitch(at.getPitch());
                     long revision = originRevision;
                     long ticket = setbacks.begin(now, revision);
@@ -560,7 +561,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                 suspend(2);
                                 if (error == null && Boolean.TRUE.equals(success)) {
                                     Location landed = player.getLocation();
-                                    if (landed.getWorld() != target.getWorld() || landed.distanceSquared(target) > .0001
+                                    // Movement can arrive before this owner-scheduled completion.
+                                    // Sequence/origin identity rejects a different teleport, not a subsequent move.
+                                    if (landed.getWorld() != target.getWorld() || !SetbackWindow.nearby(landed.distanceSquared(target))
                                             || player.isDead() || player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR
                                             || player.isInsideVehicle() || player.getAllowFlight() || player.isFlying()
                                             || player.isGliding() || player.isRiptiding() || !player.hasGravity()
@@ -568,7 +571,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                             || !target.getWorld().getWorldBorder().isInside(target)) { grace(player); return; }
                                     var landedEnvironment = EnvironmentProbe.inspect(player, target);
                                     if (!landedEnvironment.known() || !landedEnvironment.ground() || !landedEnvironment.clear()
-                                            || landedEnvironment.special() || landedEnvironment.liquid() || landedEnvironment.web()) {
+                                            || landedEnvironment.special() || landedEnvironment.liquid()) {
                                         grace(player); return;
                                     }
                                     safe = target.clone();
@@ -582,7 +585,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 }
             }
             if (environment.ground() && environment.clear() && result.clean() && !phased
-                    && !surface && !climbing && !environment.web()) { safe = at.clone(); safeCreatedNanos = now; }
+                    && !environment.liquid()) { safe = at.clone(); safeCreatedNanos = now; }
             last = at;
         }
     }

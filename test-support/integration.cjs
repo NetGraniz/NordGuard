@@ -247,6 +247,7 @@ async function main() {
   await sleep(250);
   const speedOrigin=bot.entity.position.clone();
   const speedBaseline=await marker('nordguard status',/corrections=(\d+)/);
+  await marker('guardprobe returnstate GuardFixture',/GUARD_RETURN_STATE_DONE/);
   let speedSetbacks=0;
   const speedTargets=[];
   const speedForced=()=>{speedSetbacks++;speedTargets.push(bot.entity.position.clone())};
@@ -261,6 +262,7 @@ async function main() {
   bot.removeListener('forcedMove',speedForced);
   await sleep(200);
   const speedResult=await marker('nordguard status',/corrections=(\d+)/);
+  await marker('guardprobe returnstate GuardFixture',/GUARD_RETURN_STATE_DONE/);
   assert(+speedResult[1]-+speedBaseline[1]>=3,'Sustained speed must receive at least three NordGuard corrections');
   assert(speedTargets.every(p=>p.distanceTo(speedOrigin)<.01),'Repeated speed must not advance the saved return position');
   pass('sustained speed receives repeated NordGuard corrections');

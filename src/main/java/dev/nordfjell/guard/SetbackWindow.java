@@ -25,6 +25,9 @@ final class SetbackWindow {
     void cancel() { pending = 0; }
     static boolean freshAnchor(long now, long created, double distanceSquared) {
         return created != 0 && now >= created && now - created < ANCHOR_NANOS
-                && Double.isFinite(distanceSquared) && distanceSquared >= 0 && distanceSquared <= 4096;
+                && nearby(distanceSquared);
+    }
+    static boolean nearby(double distanceSquared) {
+        return Double.isFinite(distanceSquared) && distanceSquared >= 0 && distanceSquared <= 4096;
     }
 }
