@@ -2,10 +2,11 @@
 const net = require('node:net');
 // Test-only FIFO TCP relay. Delays actual traffic in both directions, never a production listener.
 class DelayProxy {
-  constructor() { this.delay = 0; this.jitter = false; this.clients = new Set(); this.timers = new Set(); }
+  constructor({noDelay=false}={}) { this.noDelay=noDelay; this.delay = 0; this.jitter = false; this.clients = new Set(); this.timers = new Set(); }
   async start() {
     this.server = net.createServer(downstream => {
       const upstream = net.connect({host:'127.0.0.1',port:25659});
+      downstream.setNoDelay(this.noDelay);upstream.setNoDelay(this.noDelay);
       this.clients.add(downstream); this.clients.add(upstream);
       const forward = (from, to) => {
         let lastDue = 0, sequence = 0, buffered = 0;

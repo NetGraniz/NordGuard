@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "nordguard_client_fixture",
+  "version": "1.0.0",
+  "name": "NordGuard isolated native client fixture",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.nordfjell.guard.fixture.NativeClientProbe"] },
+  "depends": { "fabricloader": ">=0.19.5", "minecraft": "26.2", "fabric-lifecycle-events-v1": "*" }
+}

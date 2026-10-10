@@ -36,7 +36,28 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
-                if(action.equals("predictionprepare")) {
+                if(action.equals("nativetrace")) {
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field sessions=NordGuard.class.getDeclaredField("sessions");sessions.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)sessions.get(guard)).get(player.getUniqueId());
+                    Field model=session.getClass().getDeclaredField("model");model.setAccessible(true);
+                    Object movement=model.get(session);
+                    Field debt=movement.getClass().getDeclaredField("speedDebt");debt.setAccessible(true);
+                    Field scores=movement.getClass().getDeclaredField("scores");scores.setAccessible(true);
+                    Field last=session.getClass().getDeclaredField("last");last.setAccessible(true);
+                    int[] count={0};
+                    player.getScheduler().runAtFixedRate(this,trace->{
+                        try {
+                            Location at=player.getLocation(),previous=(Location)last.get(session);
+                            getLogger().info("GUARD_TRACE "+count[0]+" x="+at.getX()+" y="+at.getY()
+                                    +" ownerDelta="+(previous==null?-1:at.distance(previous))
+                                    +" speed="+player.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED).getValue()
+                                    +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]);
+                            if(++count[0]>=100)trace.cancel();
+                        } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
+                    },null,1,1);
+                    getLogger().info("GUARD_TRACE_STARTED");
+                } else if(action.equals("predictionprepare")) {
                     var at=player.getLocation();int x=(at.getBlockX()>>4)*16+8,z=(at.getBlockZ()>>4)*16+8;
                     for(int dx=-7;dx<=7;dx++)for(int dz=-7;dz<=7;dz++) {
                         if(!Bukkit.isOwnedByCurrentRegion(at.getWorld(),(x+dx)>>4,(z+dz)>>4)

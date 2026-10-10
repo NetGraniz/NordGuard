@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-rc.5 — stage 4 investigation
+
+- Repay horizontal speed debt on skipped, unchanged grounded owner ticks without extra world queries, timers or banked future credit. Keep excessive-average-speed detection and untrusted reset origins covered by unit tests.
+- Add a separate Fabric fixture that drives actual Minecraft 26.2 input and verifies installed Wurst Flight, SpeedHack, Spider and Jesus enablement on a loopback-only test connection. No client or test code is bundled in NordGuard.
+- Record ordinary movement, per-check evidence and completed corrections under real TCP delay and ordered jitter. Split explicitly disabled/enabled Nagle buffering into labelled test profiles.
+- Retain failing native-client regressions. Corrections under batched traffic are not stable; stage 4 and the final release gate remain open. Defaults remain OBSERVE.
+
 ## 0.4.0
 
 - Add a bounded, observation-only 26.2 packet timeline with movement variants, persistent input, TickEnd, teleport confirmations and self velocity.

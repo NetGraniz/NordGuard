@@ -1,5 +1,23 @@
 # Test record
 
+## 0.5.0-rc.5 — stage 4 native-client investigation (not passed)
+
+Date: 2026-10-10. Windows 11, Oracle JDK 25. Candidate JAR: 164,710 bytes; SHA-256 `d9b3cc6f5ac6fec3d208ba4c22e3233a3c792930d039af49035554b63af20ecf`. No production files or personal launcher accounts were used. The fixture launches the installed official Minecraft 26.2 client with Fabric Loader 0.19.5 and Fabric API 0.161.0 in a separate game directory, then a separate launch with installed Wurst 7.56. Ordinary cases drive native movement keys, not constructed positions. Wurst cases verify actual module enablement and require both check evidence and a completed NordGuard correction.
+
+Local Maven verification passed 221 unit tests with no failures or skips. Four new regressions cover alternating ordinary two-tick movement batches and skipped stationary ticks, excessive average speed despite those idle ticks, inability to bank future credit by standing still, and untrusted first positions after construction/reset. The main change repays speed debt and decays SPEED evidence on a skipped unchanged grounded tick. It adds no world query, packet callback, repeating task or dependency. This fixes a discrete accounting error, not complete packet-batch compensation.
+
+Setup failures are not successful movement tests. The first native Paper attempt remained at the fresh profile's accessibility onboarding screen and was stopped; its stale helper build is not validation. The fixture now uses a separate onboarding-free options file and acknowledges commands only after its own loopback login. The original personal Prism instance is not edited. Offline launch uses dummy token `0`; associated authlib/Realms failures are expected and are not NordGuard failures.
+
+The rc.4 Paper `native-paper-r2` run passed ordinary walking, sprinting, jumping and sneaking without added delay, then walking at 100 ms per direction. Ordinary sprint at 100 ms produced one SPEED report and one completed correction. The full rc.4 `native-paper-r3` run passed 9 of 12 ordinary cases; walking/sprinting/jumping at 300 ms with jitter failed, including false SPEED/FLIGHT and returns. All 12 hostile cases (four modules at three delays) produced their own evidence and NordGuard corrections, without internal/region-access errors. The whole matrix failed because ordinary movement must also pass.
+
+The rc.5 `native-paper-r4` run again detected/corrected all 12 hostile cases, but only 9 of 12 ordinary cases passed: walking without added delay, sprinting at 100 ms and jumping at 300 ms with jitter triggered false SPEED and corrections. Its trace records an ordinary sprint remaining stationary in owner samples, then advancing by multiple native steps together and accumulating debt. The idle repayment fix is not sufficient for that arrival pattern.
+
+These initial relay runs used Node's default Nagle-enabled sockets. Their configured 0/100/300 ms per-direction delay is not a bound on observed packet arrival delay; buffering is an additional uncontrolled condition. The fixture now labels `noDelay` and explicitly disables Nagle for the controlled profile, retaining `NORD_NATIVE_NAGLE=1` as a separate buffering profile. Earlier failing results remain failures; changing the relay cannot establish production safety. Controlled-profile and final synthetic regression results will be recorded separately, not inferred from these runs.
+
+The native terrain preparation also invalidated the optional bounded block cache. In the initial runs, ordinary prediction seeded/accepted zero frames and mostly deferred unknown geometry. Zero mismatches in such a run is not a predictor pass. The fixture does not force chunk resends to conceal that gap. The constructed rc.4 predictor scenario below remains a narrower passing test, not proof of native-client prediction coverage.
+
+Release blockers: legitimate batched movement must stop causing false corrections without opening sustained-speed/flight bypasses; native-client prediction must get meaningful accepted-frame coverage; special physics, transitions and distributed CPU/allocation/network behavior at the intended player count remain unvalidated. No stable release or 600-player performance claim follows from this stage. All checks still default to OBSERVE.
+
 ## 0.5.0-rc.4 — stage 3 transition and setback safety
 
 Date: 2026-10-10. Windows 11, Oracle JDK 25. Candidate JAR: 164,551 bytes; SHA-256 `156c4be88cbe7fe780d1a1c5b850976a12d7662cb496667fdca09426b696410f`. Production was not accessed or modified. Ordinary prediction remains opt-in and observation-only; this stage hardens the existing movement correction path, not predictor enforcement or complete special-movement physics.

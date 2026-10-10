@@ -1,5 +1,7 @@
 # Isolated runtime tests
 
+For independent native movement and installed Wurst reproductions, see [native-client/README.md](native-client/README.md). Those tests use the actual Minecraft client rather than the constructed movement cases below.
+
 Build the release with JDK 25 and Maven, then run `build-probe.ps1` with `-JavaHome` if needed. The probe script uses the current Windows user's default Maven cache; adjust dependency paths for a custom Maven repository.
 
 ```text

@@ -1,6 +1,8 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.4 hardens movement transitions and existing setbacks. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.5 adds native-client regression fixtures and repairs speed-debt accounting on skipped stationary ticks. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is an experimental candidate, not a stable complete anticheat.
+
+Stage 4 is not passed. Actual Minecraft-client tests found legitimate movement triggering corrections when traffic arrives in batches; the stationary-tick fix does not solve the whole problem. Keep movement checks in their default OBSERVE mode. Passing constructed packet tests or detecting four Wurst modules does not make correction safe. See [TESTING.md](TESTING.md) for the failing scenarios and remaining gates.
 
 ## Checks
 

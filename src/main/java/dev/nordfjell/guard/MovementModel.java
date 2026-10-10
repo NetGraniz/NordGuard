@@ -29,6 +29,15 @@ final class MovementModel {
         java.util.Arrays.fill(scores, 0);
     }
 
+    /** Account for an unchanged grounded owner tick without repeating world queries. No banked credit. */
+    void stationaryTick() {
+        if (last == null || !last.ground() || last.exempt() || last.medium()) return;
+        jumpMomentum *= .91;
+        speedDebt = Math.max(0, speedDebt - last.speed() - jumpMomentum - .02);
+        int speed = Check.SPEED.ordinal();
+        scores[speed] = Math.max(0, scores[speed] - .25);
+    }
+
     Result accept(Frame next, Policy policy) {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {

@@ -462,7 +462,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (!Double.isFinite(at.getX()) || !Double.isFinite(at.getY()) || !Double.isFinite(at.getZ())) { suspend(20); return; }
             if (last != null && at.getWorld() != last.getWorld()) { suspend(current.transitionGrace()); return; }
             boolean stationary = last != null && at.distanceSquared(last) < 1.0E-10;
-            if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) return;
+            if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) {
+                model.stationaryTick();
+                return;
+            }
             var environment = EnvironmentProbe.inspect(player, at);
             // Use feet geometry, not a claimed swimming pose, to classify a liquid surface.
             boolean surface = environment.liquidSurface();
