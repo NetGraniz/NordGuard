@@ -2,7 +2,7 @@
 
 Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.8 preserves the observed chunk stream across self attributes, effects and metadata changes while still resetting physics confidence. It retains the bounded arrival allowance, coalesced jumps and floor-support checks. Grounded idle samples retain their normal support/return-anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is an experimental candidate, not a stable complete anticheat.
 
-Stage 4 is not passed. Earlier latency tests used a relay that could reorder TCP fragments; their reported matrix results do not validate FIFO-network behavior. The fixture now uses an explicit ordered queue and a byte-for-byte regression. Keep movement checks in their default OBSERVE mode. A narrow client matrix and detection of four Wurst modules do not make correction universally safe. See [TESTING.md](TESTING.md) for current evidence, remaining gates and historical runs.
+The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases on each tested platform; Folia also passes 11 extended ordinary scenarios, including a two-minute patrol. Initial predictor seeds and accepted frames are now nonzero. These are narrow checks, not universal correction safety or 600-player capacity. Stage 4's broader validation remains open. Keep movement checks in OBSERVE. Earlier relay results are qualified in [TESTING.md](TESTING.md), alongside current evidence and remaining gates.
 
 ## Checks
 
@@ -33,7 +33,7 @@ The native teleport bridge reads the server-issued teleport sequence on the play
 
 ## Installation and configuration
 
-Requires Java 25. Put one release JAR in `plugins` while the server is stopped. No client mod, database, packet library or external service is required. Configuration: `plugins/NordGuard/config.yml`.
+Requires Java 25. Download a candidate from [GitHub Releases](https://github.com/NetGraniz/NordGuard/releases). Put one release JAR in `plugins` while the server is stopped. No client mod, database, packet library or external service is required. Configuration: `plugins/NordGuard/config.yml`. Existing configurations retain their selected modes; updating the JAR does not reset CORRECT to OBSERVE.
 
 All 17 checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
 
@@ -211,7 +211,7 @@ See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented 
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.5.0-rc.4.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.5.0-rc.8.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

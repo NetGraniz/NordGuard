@@ -1,19 +1,23 @@
-# NordGuard 0.5.0-rc.7 — bounded arrival allowance
+# NordGuard 0.5.0-rc.8 — preserve observed world across player state changes
 
-Experimental candidate for Minecraft 26.2, Paper and Folia, Java 25. Stage 4 remains open. Keep movement checks in OBSERVE until the remaining native-client release gates pass.
+Release candidate for Minecraft 26.2 on Paper and Folia, Java 25. This is a prerelease, not a complete stable anticheat or a validated 600-player deployment. All checks default to OBSERVE. Existing configurations keep their selected modes; updating the JAR does not turn an existing CORRECT setting back into OBSERVE.
 
 ## Changes
 
-An unchanged owner position can precede several catch-up movement samples. NordGuard now repays existing speed debt first, then carries the unused allowance into arriving movement. The reserve is capped at `movement.burst-ticks` times the current speed allowance. Each batch spends only what it needs.
+Self attributes, effects and entity metadata now reset physics confidence without discarding the observed chunk stream. Pending block changes remain unknown until the matching barrier; these player-state packets cannot acknowledge them. Dimension changes, uncertain world data, barrier ambiguity and observer loss remain conservative.
 
-Long idle cannot grow the reserve beyond that cap. A speed decrease clamps it, and resets and medium transitions clear it. Client MOVE and TickEnd counts do not create allowance. This tolerates a bounded short burst after idle; it is not a packet-by-packet physics simulator. Existing evidence and burst thresholds have not been increased.
+The test relay now uses an explicit FIFO queue and one monotonic head timer per direction. Its former independent timers failed a raw byte-order reproduction. Earlier latency results are qualified in the test record; no movement threshold or physics rule was relaxed for that test defect. CI verifies all 6,000 bytes in both directions.
 
-The change adds two doubles per session and constant-time arithmetic. It adds no world scan, scheduler, packet callback or dependency. This is a source-level bound, not a measured production performance comparison or proof of 600-player capacity.
+The native fixture adds terrain, effects and expiry, server-issued knockback, cobwebs, ladder ascent and a two-minute patrol with an optional isolated-server JFR recording. It requires fresh client-state snapshots and nonzero initial native predictor coverage. Test helpers, clients, logs and recordings are not bundled in the plugin.
 
 ## Validation and limits
 
-Local clean verification and GitHub Actions run 38066112083 passed all 241 unit tests, including seven new arrival-budget regressions. The final rc.7 archive also passed the full native matrices on Paper and Folia: 12/12 ordinary six-second movement cases and 12/12 Wurst cases on each platform, across three delay profiles. No ordinary movement counter or correction increased. The same archive passed all 91 synthetic runtime assertions on each platform, including return anchors, repeated corrections, teleports, fall damage, action gates and observer lifecycle checks. All four installed archives matched the candidate hash; test servers stopped cleanly. Results and failed intermediate runs are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md).
+Local verification and GitHub Actions run 38080182618 passed 247 unit tests and the separate FIFO byte regression. The final corrected-fixture Paper matrix passed 12 ordinary six-second cases and 12 actual Wurst cases; Folia passed those cases plus 11 extended ordinary scenarios. No ordinary movement counter or correction increased. All 24 hostile cases required their own check evidence and a completed NordGuard correction. Results, exact runtime builds, hashes, profiling scope and failed intermediate runs are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md).
 
-Ordinary packet prediction remains opt-in and observation-only. Its native accepted-frame coverage, special movement physics and distributed CPU/allocation/network behavior remain unvalidated. Existing configurations remain compatible. No automatic bans or kicks were added, and production data were not changed.
+The same archive passed all 91 synthetic server-runtime assertions on each platform, including repeated returns, teleports, fall damage, action gates, delayed traffic, reload and observer cleanup. All four final installed copies matched the candidate hash, test servers stopped cleanly, and no test listeners remained.
 
-Local candidate JAR: 166,146 bytes. SHA-256: `188c725a84985ec75bd55f137ebb3b0ecbddda5ded195ab944f4c229a3aaa74c`. No new stable release is published.
+Initial native predictor seeds, accepted frames and trials are now nonzero on both platforms. Those counters include stationary frames; later unknown geometry still defers. The predictor and replica remain opt-in, disabled by default and unable to punish players. Full acknowledged attribute history, special/entity-collision physics, broader elytra/transitions and production-plugin interactions remain unvalidated.
+
+The main change adds no world scan, repeating task or dependency and retains existing cache/work bounds. A two-minute one-player JFR recording is not an A/B overhead comparison or distributed capacity proof. A separate sustained load test is still needed for the intended 600-player deployment. No automatic bans or kicks were added. Production configurations, worlds and account data were not accessed or changed.
+
+Candidate JAR: 166,181 bytes. SHA-256: `ac976afc7023b7c9211b01f5396d287f4c41ea488c4b03f6b4ff7e6e66ddf9b1`.
