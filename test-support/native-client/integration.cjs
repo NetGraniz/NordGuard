@@ -21,7 +21,10 @@ async function until(fn,label,timeout=60000){const start=Date.now();while(!fn())
 async function marker(command,pattern){const offset=serverOutput.length;server.stdin.write(command+'\n');
   await until(()=>pattern.test(serverOutput.slice(offset)),command);return serverOutput.slice(offset);}
 function pass(label){passed.push(label);console.log('PASS: '+label);}
-function state(){try{return JSON.parse(fs.readFileSync(path.join(root,'client/state.json'),'utf8'));}catch{return {};}}
+let lastState={},lastStateTime=0;
+function state(){try{const file=path.join(root,'client/state.json');lastState=JSON.parse(fs.readFileSync(file,'utf8'));lastStateTime=fs.statSync(file).mtimeMs;}
+  catch{/* A native write may briefly expose a partial file; never use a snapshot older than one second. */}
+  return Date.now()-lastStateTime<=1000?lastState:{};}
 async function control(value){const file=path.join(root,'client/control.json');fs.writeFileSync(file+'.tmp',JSON.stringify(value));
   for(let attempt=0;;attempt++){try{fs.renameSync(file+'.tmp',file);return}catch(error){
     if(!['EPERM','EBUSY','EACCES'].includes(error.code)||attempt>=30)throw error;
@@ -51,6 +54,7 @@ async function prepare(terrain){await mode('idle');await marker('guardprobe prep
   await sleep(4000);
 }
 async function launchClient(wurst){
+  lastState={};lastStateTime=0;
   const dir=path.join(root,'client');fs.mkdirSync(path.join(dir,'mods'),{recursive:true});
   fs.copyFileSync(path.join(__dirname,'options.txt'),path.join(dir,'options.txt'));
   fs.copyFileSync(launch.api,path.join(dir,'mods',path.basename(launch.api)));
