@@ -12,7 +12,7 @@ The change adds two doubles per session and constant-time arithmetic. It adds no
 
 ## Validation and limits
 
-Local clean verification passed all 241 unit tests, including seven new arrival-budget regressions. Runtime matrix results and failed intermediate runs are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md). The final rc.7 archive still needs its complete native and synthetic runtime matrices; do not substitute results from an earlier archive.
+Local clean verification and GitHub Actions run 38066112083 passed all 241 unit tests, including seven new arrival-budget regressions. The final rc.7 archive also passed the full native matrices on Paper and Folia: 12/12 ordinary six-second movement cases and 12/12 Wurst cases on each platform, across three delay profiles. No ordinary movement counter or correction increased. The same archive passed all 91 synthetic runtime assertions on each platform, including return anchors, repeated corrections, teleports, fall damage, action gates and observer lifecycle checks. All four installed archives matched the candidate hash; test servers stopped cleanly. Results and failed intermediate runs are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md).
 
 Ordinary packet prediction remains opt-in and observation-only. Its native accepted-frame coverage, special movement physics and distributed CPU/allocation/network behavior remain unvalidated. Existing configurations remain compatible. No automatic bans or kicks were added, and production data were not changed.
 

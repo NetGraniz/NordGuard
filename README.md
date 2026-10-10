@@ -2,7 +2,7 @@
 
 Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.7 carries a bounded allowance from unchanged owner ticks into arriving movement batches. It preserves the coalesced jump and floor-support checks from rc.6. Grounded idle samples retain their normal support/return-anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is an experimental candidate, not a stable complete anticheat.
 
-Stage 4 is not passed. Actual Minecraft-client tests found legitimate movement triggering corrections when traffic arrives in batches; the bounded transition fixes are not a full packet-time simulator. Keep movement checks in their default OBSERVE mode. Passing constructed packet tests or detecting four Wurst modules does not make correction safe. See [TESTING.md](TESTING.md) for the failing scenarios and remaining gates.
+Stage 4 is not passed. The rc.7 archive passes the specified native-client walking, sprinting, jump and sneak matrix on both tested platforms, including delayed traffic. This resolves those recorded false SPEED cases, not every legitimate movement scenario or timing exploit. Keep movement checks in their default OBSERVE mode. Passing this narrow matrix and detecting four Wurst modules does not make correction universally safe. See [TESTING.md](TESTING.md) for the remaining gates and earlier failing runs.
 
 ## Checks
 
@@ -85,6 +85,8 @@ FastBreak tracks one active block per player. Repeated starts replace the timeli
 Rate budgets refill with monotonic elapsed time, not packet count or server TPS. One second of burst credit means a short burst can exceed the per-second setting. Pick limits compatible with your own instant-mining, building and combat mechanics before enabling CORRECT.
 
 `movement.violation-buffer` controls accumulated movement evidence. Spider uses at most three evidence samples; WaterWalk uses at least ten to allow brief surface crossings. `horizontal-margin` is added once to the speed burst budget, not to every tick's speed allowance. `vertical-margin` remains a vertical tolerance; Spider scales it when comparing gravity deceleration. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are starting points, not calibrated guarantees.
+
+Unchanged owner ticks repay speed debt first, then retain unused allowance up to `burst-ticks` times the current speed allowance. Later batches consume that reserve once; standing still longer cannot enlarge it. Client packet counts do not create movement allowance.
 
 Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
 
