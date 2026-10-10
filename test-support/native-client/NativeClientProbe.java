@@ -15,6 +15,8 @@ public final class NativeClientProbe implements ClientModInitializer {
     private String mode = "idle", module = "", error = "";
     private long id = -1, ticks;
     private Object hack;
+    private boolean patrol, returning;
+    private double originX, travel, lastX, lastZ;
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
     }
@@ -30,6 +32,9 @@ public final class NativeClientProbe implements ClientModInitializer {
                 if (next.get("id").getAsLong() != id && (local && mc.player != null || next.get("mode").getAsString().equals("stop"))) {
                     disableHack();
                     mode = next.get("mode").getAsString(); id = next.get("id").getAsLong();
+                    patrol = next.has("patrol") && next.get("patrol").getAsBoolean();
+                    returning = false; originX = mc.player == null ? 0 : mc.player.getX();
+                    travel = 0; lastX = originX; lastZ = mc.player == null ? 0 : mc.player.getZ();
                     if (!java.util.Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","stop").contains(mode))
                         throw new IllegalArgumentException("Unknown fixture mode");
                     if (java.util.Set.of("flight","speed","spider","water").contains(mode)) {
@@ -51,7 +56,15 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
             mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight")));
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
-            if (mc.player != null && local) mc.player.setYRot(-90);
+            if (mc.player != null && local) {
+                travel += Math.hypot(mc.player.getX()-lastX,mc.player.getZ()-lastZ);
+                lastX = mc.player.getX(); lastZ = mc.player.getZ();
+                if (patrol && forward) {
+                    if (mc.player.getX() >= originX + 12) returning = true;
+                    else if (mc.player.getX() <= originX + 1) returning = false;
+                }
+                mc.player.setYRot(returning ? 90 : -90);
+            }
             if (ticks % 2 == 0 || mode.equals("stop")) {
                 var state = new JsonObject();
                 state.addProperty("id",id); state.addProperty("mode",mode); state.addProperty("ticks",ticks);
@@ -59,6 +72,8 @@ public final class NativeClientProbe implements ClientModInitializer {
                 state.addProperty("error",error);
                 state.addProperty("moduleEnabled",hack != null && (boolean)hack.getClass().getMethod("isEnabled").invoke(hack));
                 state.addProperty("screen",mc.gui.screen()==null?"none":mc.gui.screen().getClass().getSimpleName());
+                state.addProperty("patrol",patrol);
+                state.addProperty("travel",travel);
                 if (mc.player != null && local) {
                     state.addProperty("x",mc.player.getX()); state.addProperty("y",mc.player.getY()); state.addProperty("z",mc.player.getZ());
                 }

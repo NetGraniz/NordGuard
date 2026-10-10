@@ -26,8 +26,10 @@ async function control(value){const file=path.join(root,'client/control.json');f
     await sleep(10); // Windows may briefly lock the destination while the native fixture reads it.
   }}
 }
-async function mode(next){const id=++sequence;await control({id,mode:next});
+async function mode(next){const id=++sequence;await control({id,mode:next,
+  patrol:ordinaryDuration>2000&&['walk','sprint','jump','sneak'].includes(next)});
   await until(()=>{if(fs.existsSync(path.join(root,'client/failure.txt')))throw Error(fs.readFileSync(path.join(root,'client/failure.txt'),'utf8'));
+    if(next!=='stop'&&state().screen==='DeathScreen')throw Error('Native fixture player died; case is invalid');
     if(clientExit)throw Error('Native client exited: '+clientOutput.slice(-2000));return state().id===id;},'client mode '+next,20000);}
 async function stats(){const output=await marker('nordguard status',/PLACERATE: \d+/);const result={};
   for(const match of output.matchAll(/\b([A-Z]+): (\d+)/g))result[match[1]]=+match[2];
@@ -84,12 +86,12 @@ async function main(){
     for(const action of ['walk','sprint','jump','sneak']){
       await prepare();const before=await stats(),origin=state();
       if(action==='jump'||action==='sprint'&&delay===100)await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
-      await mode(action);await sleep(ordinaryDuration);await mode('idle');await sleep(1200);
+      await mode(action);await sleep(ordinaryDuration);const activeEnd=state();await mode('idle');await sleep(1200);
       const after=await stats(),end=state(),distance=Math.hypot(end.x-origin.x,end.z-origin.z);
-      measurements.push({kind:'ordinary',delay,jitter:proxy.jitter,action,distance,before,after,clientTicks:end.ticks-origin.ticks});
+      measurements.push({kind:'ordinary',delay,jitter:proxy.jitter,action,distance,travel:activeEnd.travel,before,after,clientTicks:end.ticks-origin.ticks});
       const issues=[];
-      if(distance<=.5)issues.push('native input did not move');
-      for(const check of ['FLIGHT','SPEED','SPIDER','WATERWALK','CLIMB','NOWEB','NOSLOW'])if(after[check]!==before[check])issues.push('false positive '+check);
+      if(!Number.isFinite(activeEnd.travel)||activeEnd.travel<=.5)issues.push('native input did not move');
+      for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])if(after[check]!==before[check])issues.push('false positive '+check);
       if(after.corrections!==before.corrections)issues.push('unexpected correction');
       if(issues.length){const issue=`native ${action}, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
       else pass(`native ${action}, ${delay}ms per direction${proxy.jitter?' + jitter':''}`);
