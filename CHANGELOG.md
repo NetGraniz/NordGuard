@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-rc.7 — bounded arrival-batch allowance
+
+- Carry unused horizontal allowance from unchanged owner ticks into subsequent movement batches. Repay existing debt first and cap the reserve at `movement.burst-ticks` times the current speed allowance. Spend only the amount needed by each batch, rather than discarding the entire reserve on its first movement.
+- Do not derive allowance from client packet counts. Clamp the reserve after a speed decrease; clear it on reset and medium transitions. Existing burst and evidence thresholds remain unchanged. A short catch-up burst after idle is tolerated; prolonged excessive average speed still accumulates evidence.
+- Add seven regressions for idle-before-arrival ordering, full and skipped idle samples, repeated catch-up batches, excessive average speed, bounded long idle, reset origins and reduced movement attributes. Keep OBSERVE defaults and the open native-client release gate.
+- Add two doubles of per-session state and constant-time arithmetic; no new world query, scheduler, packet callback or dependency.
+
 ## 0.5.0-rc.6 — stage 4 transition corrections
 
 - Recognize one, two or three cumulative ordinary jump steps before granting bounded sprint-jump momentum. Keep micro-hops and implausible high takeoffs outside that match.

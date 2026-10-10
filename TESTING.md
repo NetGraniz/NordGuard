@@ -1,5 +1,17 @@
 # Test record
 
+## 0.5.0-rc.7 — bounded arrival allowance (stage 4 still open)
+
+Date: 2026-10-10. Local candidate: 166,146 bytes; SHA-256 `188c725a84985ec75bd55f137ebb3b0ecbddda5ded195ab944f4c229a3aaa74c`. Windows 11, Oracle JDK 25. Production was not accessed. The isolated runtime tests use only synthetic accounts and fresh worlds.
+
+Local clean verification passed 241 unit tests with no failures, errors or skips. Seven new regressions cover idle-before-arrival ordering, full and skipped idle samples, prolonged catch-up batches, excessive average speed, reset origins, a bounded reserve after long idle and clamping after a movement-attribute decrease. An intermediate implementation discarded the whole reserve on its first moving sample; the new catch-up regression failed until consumption was changed to match only the required amount.
+
+The reserve comes only from unchanged owner samples. Existing debt is repaid first. Unused allowance is capped at `movement.burst-ticks` times the current speed allowance, including clamping before a moving sample. Resets and medium transitions clear it. Client MOVE/TickEnd counts cannot increase the reserve. This intentionally tolerates a bounded catch-up burst after idle; it does not establish packet-by-packet physics validation or eliminate every timing exploit.
+
+The preliminary `nordguard-test-20261010-native-paper-r7` run used an intermediate rc.6-labelled JAR (`8b61ec21676c2efa82ea44e2cf299ff77794d303187282de356bff775935f9a7`), not the rc.7 archive above. At two seconds per ordinary case it passed 9/12 cases and all 12 Wurst cases. Jump at 0 ms and walk at 100 ms caused false SPEED corrections; jump at 300 ms did not establish native travel. The run failed overall and stopped cleanly. Its logs remain separate. The final rc.7 archive still needs the full native and synthetic matrices; results are not inferred from that earlier binary.
+
+No new stable release is published. OBSERVE remains the default. Native packet prediction, special physics and distributed high-load validation remain open.
+
 ## 0.5.0-rc.6 — bounded native transition fixes (stage 4 still open)
 
 Date: 2026-10-10. Windows 11, Oracle JDK 25. Final local candidate: 165,902 bytes; SHA-256 `7d60e29f92c50ac7a9e76e810ca63a73373c9462409bd6e722170926bbf1b8b7`. Production and personal launcher accounts/settings were not accessed. This archive includes the grounded idle anchor fix; earlier native-tested archives are identified separately below.

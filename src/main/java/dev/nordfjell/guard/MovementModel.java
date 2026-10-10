@@ -20,22 +20,22 @@ final class MovementModel {
     record Result(EnumSet<Check> flags, double landingDistance, boolean clean) {}
     private Frame last;
     private int airTicks, groundTicks, jumpAge, descentAge;
-    private double lastDy, peakY, speedDebt, jumpMomentum, descentDy;
+    private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
     private boolean falling;
     private final double[] scores = new double[Check.values().length];
 
     void reset() {
         last = null; airTicks = groundTicks = 0; jumpAge = descentAge = 100;
-        lastDy = speedDebt = jumpMomentum = descentDy = 0; falling = false;
+        lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
         java.util.Arrays.fill(scores, 0);
     }
 
-    /** Account for an unchanged grounded owner tick without repeating world queries. No banked credit. */
+    /** Account for elapsed owner time without repeating world queries. Credit is burst-bounded. */
     void stationaryTick() {
         if (last == null || !last.ground() || last.exempt() || last.medium()) return;
         jumpAge = Math.min(100, jumpAge + 1);
         jumpMomentum *= .91;
-        speedDebt = Math.max(0, speedDebt - last.speed() - jumpMomentum - .02);
+        idleSpeedTick(last.speed() + jumpMomentum + .02);
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
     }
@@ -43,10 +43,16 @@ final class MovementModel {
     /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
     void transportIdleTick() {
         if (last == null || last.exempt() || last.medium()) return;
-        speedDebt = Math.max(0, speedDebt - last.speed() - jumpMomentum - .02);
+        idleSpeedTick(last.speed() + jumpMomentum + .02);
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
-        // Preserve vertical history until data arrives. No negative debt or stored future credit.
+        // Preserve vertical history until data arrives. Only owner ticks create bounded allowance.
+    }
+
+    private void idleSpeedTick(double allowance) {
+        double repaid = Math.min(speedDebt, allowance);
+        speedDebt -= repaid;
+        idleSpeedCredit = Math.min(idleSpeedLimit, idleSpeedCredit + allowance - repaid);
     }
 
     Result accept(Frame next, Policy policy) {
@@ -57,6 +63,7 @@ final class MovementModel {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
             reset(); last = next; peakY = next.y();
+            idleSpeedLimit = next.speed() * policy.burstTicks();
             // One position after a reset proves no displacement, so it cannot replace a return anchor.
             return new Result(flags, 0, false);
         }
@@ -84,7 +91,7 @@ final class MovementModel {
             score(Check.SPIDER, false, policy, flags);
             score(Check.SPEED, false, policy, flags);
             score(Check.HIGHJUMP, false, policy, flags);
-            speedDebt = jumpMomentum = 0; airTicks = 0; falling = false;
+            speedDebt = jumpMomentum = idleSpeedCredit = 0; airTicks = 0; falling = false;
             boolean supportedIdle = next.ground() && last.ground() && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
             peakY = next.y(); lastDy = dy; last = next;
@@ -109,7 +116,17 @@ final class MovementModel {
             descentAge = 100;
         }
         double allowed = next.speed() + jumpMomentum + .02;
-        speedDebt = Math.min(100, Math.max(0, speedDebt + horizontal - allowed));
+        idleSpeedLimit = next.speed() * policy.burstTicks();
+        idleSpeedCredit = Math.min(idleSpeedCredit, idleSpeedLimit);
+        if (horizontal < 1.0E-5) idleSpeedTick(allowed);
+        else {
+            // A zero-position owner tick may precede, rather than follow, the next TCP batch.
+            // Consume its allowance once. Client MOVE/TickEnd counts never mint speed credit.
+            double required = Math.max(0, speedDebt + horizontal - allowed);
+            double spent = Math.min(idleSpeedCredit, required);
+            speedDebt = Math.min(100, required - spent);
+            idleSpeedCredit -= spent;
+        }
         score(Check.SPEED, speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
         if (next.ground()) {
             score(Check.HIGHJUMP, dy > next.step() + policy.verticalMargin(), policy, flags);
