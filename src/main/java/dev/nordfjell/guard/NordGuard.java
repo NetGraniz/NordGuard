@@ -199,6 +199,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Session session = sessions.get(player.getUniqueId());
         if (session != null) {
             session.originRevision++;
+            session.setbacks.cancel();
             session.safe = session.setbackTarget = null;
             session.teleporting = false;
             session.suspend(policy.transitionGrace());
@@ -318,6 +319,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Policy seenPolicy;
         Location last, safe, setbackTarget;
         long originRevision;
+        long safeCreatedNanos;
+        final SetbackWindow setbacks = new SetbackWindow();
         int grace, idle;
         int teleportSequence;
         boolean seenTeleportSequence;
@@ -374,6 +377,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 boolean eligible=!player.isDead() && player.getGameMode()==GameMode.SURVIVAL && !player.getAllowFlight()
                         && !player.isFlying() && !player.isInsideVehicle() && !player.isGliding() && !player.isSwimming()
                         && !player.isSneaking() && !player.isRiptiding() && !player.hasActiveItem()
+                        && player.hasGravity() && !player.isClimbing() && !player.isInWater()
                         && player.getActivePotionEffects().isEmpty() && !player.hasPermission("nordguard.bypass")
                         && attribute(player,Attribute.AIR_DRAG_MODIFIER,1)==1
                         && attribute(player,Attribute.FRICTION_MODIFIER,1)==1 && player.getWalkSpeed()==.2f
@@ -419,8 +423,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
             long start = System.nanoTime();
             try { sample(start); }
             catch (Exception error) {
+                setbacks.cancel();
                 teleporting = false;
                 setbackTarget = null;
+                safe = null;
                 suspend(100);
                 if (start - lastAlert[0] > 10_000_000_000L) {
                     lastAlert[0] = start;
@@ -429,6 +435,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             } finally { samples.increment(); sampleNanos.add(System.nanoTime() - start); }
         }
         void sample(long now) throws Exception {
+            if (setbacks.expired(now)) grace(player);
             observePackets(now);
             int sequence = nativeTeleport.sequence(player);
             if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
@@ -527,17 +534,22 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 report(this, check, "movement outside conservative envelope");
                 correct |= current.modes().get(check) == Policy.Mode.CORRECT;
             }
-            if (correct && safe != null && !teleporting) {
+            if (correct && safe != null && !teleporting && safe.getWorld() == at.getWorld()
+                    && SetbackWindow.freshAnchor(now, safeCreatedNanos, at.distanceSquared(safe))
+                    && at.getWorld().getWorldBorder().isInside(safe)) {
                 var targetEnvironment = EnvironmentProbe.inspect(player, safe);
-                if (targetEnvironment.known() && targetEnvironment.ground() && targetEnvironment.clear() && !targetEnvironment.special()) {
+                if (targetEnvironment.known() && targetEnvironment.ground() && targetEnvironment.clear() && !targetEnvironment.special()
+                        && !targetEnvironment.liquid() && !targetEnvironment.web()) {
                     Location target = safe.clone(); target.setYaw(at.getYaw()); target.setPitch(at.getPitch());
                     long revision = originRevision;
+                    long ticket = setbacks.begin(now, revision);
                     int expectedSequence = NativeTeleport.next(nativeTeleport.sequence(player));
                     setbackTarget = target;
                     teleporting = true;
                     player.teleportAsync(target, PlayerTeleportEvent.TeleportCause.PLUGIN).whenComplete((success, error) ->
                             player.getScheduler().run(NordGuard.this, ignored -> {
-                                if (originRevision != revision) return;
+                                if (stopped || shuttingDown || !player.isOnline() || !setbacks.owns(ticket, originRevision)) return;
+                                if (!setbacks.finish(ticket, originRevision, System.nanoTime())) { grace(player); return; }
                                 teleportSequence = nativeTeleport.sequence(player);
                                 seenTeleportSequence = true;
                                 if (error == null && Boolean.TRUE.equals(success) && teleportSequence != expectedSequence) {
@@ -547,14 +559,30 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                 teleporting = false; setbackTarget = null;
                                 suspend(2);
                                 if (error == null && Boolean.TRUE.equals(success)) {
+                                    Location landed = player.getLocation();
+                                    if (landed.getWorld() != target.getWorld() || landed.distanceSquared(target) > .0001
+                                            || player.isDead() || player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR
+                                            || player.isInsideVehicle() || player.getAllowFlight() || player.isFlying()
+                                            || player.isGliding() || player.isRiptiding() || !player.hasGravity()
+                                            || player.hasPermission("nordguard.bypass")
+                                            || !target.getWorld().getWorldBorder().isInside(target)) { grace(player); return; }
+                                    var landedEnvironment = EnvironmentProbe.inspect(player, target);
+                                    if (!landedEnvironment.known() || !landedEnvironment.ground() || !landedEnvironment.clear()
+                                            || landedEnvironment.special() || landedEnvironment.liquid() || landedEnvironment.web()) {
+                                        grace(player); return;
+                                    }
                                     safe = target.clone();
+                                    safeCreatedNanos = System.nanoTime();
                                     corrections.increment();
+                                } else {
+                                    safe = null;
                                 }
                             }, () -> {}));
                     return;
                 }
             }
-            if (environment.ground() && environment.clear() && result.clean() && !phased) safe = at.clone();
+            if (environment.ground() && environment.clear() && result.clean() && !phased
+                    && !surface && !climbing && !environment.web()) { safe = at.clone(); safeCreatedNanos = now; }
             last = at;
         }
     }

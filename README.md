@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.3 connects the ordinary movement predictor to an opt-in packet observation path and acknowledged block state. It checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0-rc.4 hardens movement transitions and existing setbacks. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This is a release candidate, not a stable complete anticheat.
 
 ## Checks
 
@@ -96,6 +96,10 @@ Reload validates a complete policy before publication. Invalid reloads retain th
 
 Temporary history resets keep the last clean supported return position. The first sample after a reset cannot replace it: the model needs displacement evidence before accepting a new clean position. External teleports, respawns, world changes and game-mode changes discard it. A successful NordGuard setback keeps its validated destination and uses a two-tick settling period instead of the ordinary transition grace. Immediate repeated movement violations can therefore trigger another setback without waiting for a new ground sample. Evidence buffers still apply; corrections are not instantaneous packet rejection.
 
+Return anchors expire after 30 seconds and must be within 64 blocks, in the same world and inside its border. Liquid surfaces, climbing and webs cannot create anchors. The loaded, region-owned destination must have support and clear body space, without special blocks, liquids or webs. Completion rechecks geometry, player eligibility, actual destination and the native teleport sequence before retaining the anchor or counting a correction. These checks cannot undo a teleport that the server has already completed; changed or uncertain destinations discard the anchor and reset history.
+
+Each pending return has its own operation ticket. External transitions invalidate it, so a late completion cannot replace newer state. Five seconds of monotonic elapsed time expire the bookkeeping at the next available owner tick or completion. This is not a background watchdog and does not cancel the server's teleport future. Folia can pause an entity's ticking during an asynchronous transfer; see [Folia's teleport lifecycle](https://docs.papermc.io/folia/reference/overview/). No extra scheduler or repeating timer is created.
+
 ## Commands and permissions
 
 | Command / permission | Purpose | Default |
@@ -150,7 +154,9 @@ One Move packet, or an omitted move, is finalized by ClientTickEnd. Duplicate mo
 
 Scenes come only from acknowledged block IDs. Collection covers both predicted branches, their candidate sweep, step height and a one-block halo for extended shapes. It reads at most 512 cells and retains at most 256 shapes. Missing or unsupported cells, missing required support and different friction values among possible support blocks defer the frame. It never reads or loads a live world to fill gaps. The two configured budgets are shared across players/regions in 50 ms windows. Saturation sacrifices coverage, not unbounded work; allocation is first-come, not fair. The defaults do not promise full coverage at 600 players or bound execution time in milliseconds.
 
-The current scope uses a standing Survival body, ordinary gravity, default drag/friction modifiers and walk-speed setting, stable movement/jump/step attributes, no potion effects, no active item and no flight, sneaking, swimming, gliding, riptide or vehicle. The model starts from a supported rest hypothesis after five stationary frames close to the owner's position; it does not seed velocity from observed displacement. Teleports, impulses, observer loss, transitions and policy reloads reset it. Eight consecutive mismatches require reacquiring rest rather than following an unchecked new origin.
+The current scope uses a standing Survival body, ordinary gravity, default drag/friction modifiers and walk-speed setting, stable movement/jump/step attributes, no potion effects, no active item and no flight, sneaking, swimming, gliding, riptide or vehicle. Disabled gravity, server-reported climbing and immersion also defer ordinary prediction. Unsupported block geometry defers collection. Separate existing WaterWalk, Climb, NoWeb and NoSlow envelopes remain available; this is not complete special-movement physics.
+
+The model starts from a supported rest hypothesis after five stationary frames close to the owner's position; it does not seed velocity from observed displacement. Teleports, impulses, observer loss, transitions and policy reloads reset it. Once an outbound teleport is observed, prediction waits for its matching confirmation; an old confirmation, velocity or owner reset cannot release that wait. Missing confirmation leaves prediction deferred, while the original checks continue. A confirmation still does not prove client obedience. Eight consecutive mismatches require reacquiring rest rather than following an unchecked new origin.
 
 Attributes and sprint state are sampled on the entity owner, not reconstructed from acknowledged attribute history. Entity collisions, client/server sprint transitions and other unmodeled influences can still cause diagnostic mismatches. Cache invalidation can leave coverage unavailable until chunks are resent naturally. This is why the integration remains observation-only; a mismatch is not proof of cheating. Full special-movement handling, independent client replays, safe predictor setbacks and distributed performance validation remain release gates.
 
@@ -201,7 +207,7 @@ See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented 
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.3.0.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.5.0-rc.4.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

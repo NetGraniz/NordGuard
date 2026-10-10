@@ -88,6 +88,25 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     getLogger().info("GUARD_STALL_DONE");
                 } else if (action.equals("actions")) {
                     actionSuite(player);
+                } else if(action.equals("setbackwindow")) {
+                    var guard=(NordGuard)Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Field map=NordGuard.class.getDeclaredField("sessions");map.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)map.get(guard)).get(player.getUniqueId());
+                    Field window=session.getClass().getDeclaredField("setbacks");window.setAccessible(true);
+                    var state=(SetbackWindow)window.get(session);
+                    Field rev=session.getClass().getDeclaredField("originRevision");rev.setAccessible(true);
+                    long before=rev.getLong(session),old=state.begin(System.nanoTime()-SetbackWindow.TIMEOUT_NANOS-1,before);
+                    for(var entry:java.util.Map.<String,Object>of("teleporting",true,"setbackTarget",player.getLocation(),"safe",player.getLocation()).entrySet()) {
+                        Field f=session.getClass().getDeclaredField(entry.getKey());f.setAccessible(true);f.set(session,entry.getValue());
+                    }
+                    var tick=session.getClass().getDeclaredMethod("tick");tick.setAccessible(true);tick.invoke(session);
+                    Field busy=session.getClass().getDeclaredField("teleporting");busy.setAccessible(true);
+                    Field safe=session.getClass().getDeclaredField("safe");safe.setAccessible(true);
+                    actionPass("setback_timeout_clears_owner_state",!busy.getBoolean(session)&&safe.get(session)==null&&rev.getLong(session)>before);
+                    actionPass("setback_timeout_rejects_late_completion",!state.finish(old,before,System.nanoTime()));
+                    long next=state.begin(System.nanoTime(),rev.getLong(session));
+                    actionPass("setback_old_completion_preserves_new_ticket",!state.finish(old,before,System.nanoTime())&&state.owns(next,rev.getLong(session)));
+                    state.cancel();getLogger().info("GUARD_SETBACK_WINDOW_DONE");
                 } else if(action.equals("phase")) {
                     phaseSuite(player);
                 } else if(action.equals("perf")) {
@@ -394,7 +413,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 // Test-only fault injection: give the sampled path a previous position across the wall.
                 for(var entry:java.util.Map.<String,Object>of("last",origin,"safe",origin,"seenPolicy",invoke(guard,"policy",new Class<?>[]{}),
                         "grace",0,"teleportSequence",invoke(guard,"nativeSequence",new Class<?>[]{Player.class},p),"seenTeleportSequence",true,
-                        "lastNanos",System.nanoTime()).entrySet()) {
+                        "lastNanos",System.nanoTime(),"safeCreatedNanos",System.nanoTime()).entrySet()) {
                     Field f=session.getClass().getDeclaredField(entry.getKey());f.setAccessible(true);f.set(session,entry.getValue());
                 }
                 Field model=session.getClass().getDeclaredField("model");model.setAccessible(true);invoke(model.get(session),"reset",new Class<?>[]{});

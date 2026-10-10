@@ -128,4 +128,35 @@ class PacketPredictionTest {
         var f=new Fixture();f.rest();f.p.refresh(new PacketPrediction.Context(true,2,.42f,.08,.6f,false,"minecraft:overworld",.5,80,.5,0));
         f.emit(NativePackets.TICK_END,0,0,0,0);assertEquals(0,f.p.trials());
     }
+    @Test void teleportRequiresMatchingAcknowledgementBeforeRestAcquisition() {
+        var f=new Fixture();f.rest();f.emit(NativePackets.TELEPORT,0,0,0,0);
+        for(int i=0;i<20;i++)f.frame(.5,80,.5);
+        assertEquals(1,f.p.seeds());assertEquals(0,f.p.trials());
+        f.emit(NativePackets.TELEPORT_ACK,0,0,0,0);
+        for(int i=0;i<5;i++)f.frame(.5,80,.5);
+        assertEquals(2,f.p.seeds());assertEquals(0,f.p.rejected());
+    }
+    @Test void staleAckCannotReleaseNewTeleport() {
+        var f=new Fixture();f.rest();
+        f.q.event(NativePackets.TELEPORT,f.nano,41,0,0,0,0,0,0);assertTrue(f.q.poll(f.e));f.p.event(f.e);
+        f.q.event(NativePackets.TELEPORT,f.nano,42,0,0,0,0,0,0);assertTrue(f.q.poll(f.e));f.p.event(f.e);
+        f.q.event(NativePackets.TELEPORT_ACK,f.nano,41,0,0,0,0,0,0);assertTrue(f.q.poll(f.e));f.p.event(f.e);
+        for(int i=0;i<10;i++)f.frame(.5,80,.5);
+        assertEquals(1,f.p.seeds());assertEquals(0,f.p.trials());
+        f.q.event(NativePackets.TELEPORT_ACK,f.nano,42,0,0,0,0,0,0);assertTrue(f.q.poll(f.e));f.p.event(f.e);
+        for(int i=0;i<5;i++)f.frame(.5,80,.5);assertEquals(2,f.p.seeds());
+    }
+    @Test void ownerAndVelocityResetsCannotClearPendingTeleport() {
+        var f=new Fixture();f.rest();f.emit(NativePackets.TELEPORT,0,0,0,0);
+        f.p.reset("owner_transition");f.emit(NativePackets.VELOCITY,0,0,0,0);
+        for(int i=0;i<10;i++)f.frame(.5,80,.5);
+        assertEquals(1,f.p.seeds());assertEquals(0,f.p.trials());
+    }
+    @Test void unsupportedOwnerStateClearsMomentumAndNeedsNewRest() {
+        var f=new Fixture();f.rest();
+        f.p.refresh(new PacketPrediction.Context(false,.1f,.42f,.08,.6f,false,"minecraft:overworld",.5,80,.5,0));
+        f.emit(NativePackets.TICK_END,0,0,0,0);
+        for(int i=0;i<4;i++)f.frame(.5,80,.5);
+        assertEquals(1,f.p.seeds());f.frame(.5,80,.5);assertEquals(2,f.p.seeds());assertEquals(0,f.p.rejected());
+    }
 }

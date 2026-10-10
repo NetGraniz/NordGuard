@@ -27,6 +27,8 @@ final class PacketPrediction {
     private final LongSupplier worldRevision;
     private Context context;
     private boolean positioned,moved,hasPosition,badTick,rotated;
+    private boolean pendingTeleport;
+    private int teleportId;
     private double x,y,z,restX,restY,restZ;
     private float yaw;
     private long moveRevision,lastTick,creditTime;
@@ -47,6 +49,13 @@ final class PacketPrediction {
     }
     void reset(String why) {model.clear();rest=0;positioned=moved=hasPosition=badTick=rotated=false;lastTick=0;reason=why;}
     void event(PacketInbox.Cursor e) {
+        if(e.kind==NativePackets.TELEPORT) {
+            pendingTeleport=true;teleportId=e.id;reset("awaiting_teleport_ack");return;
+        }
+        if(e.kind==NativePackets.TELEPORT_ACK) {
+            if(pendingTeleport && e.id==teleportId) {pendingTeleport=false;reset("teleport_ack_reacquire_rest");}
+            return;
+        }
         if(e.kind==NativePackets.CLOSED || e.kind==NativePackets.CONTEXT_CHANGE || e.kind==NativePackets.TELEPORT
                 || e.kind==NativePackets.VELOCITY || e.kind==NativePackets.ATTACHED) {reset("packet_context_transition");return;}
         if(e.kind==NativePackets.WORLD_DATA && (e.payload instanceof WorldSnapshot.Reset || e.payload instanceof WorldSnapshot.Invalidation)) {
@@ -76,6 +85,7 @@ final class PacketPrediction {
         if(context==null || !context.ordinary() || !positioned || !usable
                 || !Double.isFinite(x+y+z) || Math.abs(x)>32_000_000 || Math.abs(z)>32_000_000 || Math.abs(y)>32768
                 || !Float.isFinite(yaw)) {defer("missing_or_ambiguous_frame_context");return;}
+        if(pendingTeleport){defer("awaiting_teleport_ack");return;}
         if(!frames.test(1)){defer("global_frame_budget");return;}
         var point=new Geometry.Point(x,y,z);
         var first=model.seeded()?model.position():point;

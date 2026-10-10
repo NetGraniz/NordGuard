@@ -392,6 +392,9 @@ async function main() {
   const actionOffset=output.length;
   await marker('guardprobe actions GuardFixture',/GUARD_ACTIONS_DONE/);
   for(const name of output.slice(actionOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('event gate: '+name[1]);
+  const windowOffset=output.length;
+  await marker('guardprobe setbackwindow GuardFixture',/GUARD_SETBACK_WINDOW_DONE/);
+  for(const name of output.slice(windowOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('setback lifecycle: '+name[1]);
   const phaseOffset=output.length;
   await marker('guardprobe phase GuardFixture',/GUARD_PHASE_DONE/);
   for(const name of output.slice(phaseOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('fault injection: '+name[1]);
