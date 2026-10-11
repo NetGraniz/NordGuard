@@ -1,0 +1,7 @@
+name: LoadProbe
+version: 1.0
+main: dev.nordfjell.load.LoadProbe
+api-version: '26.2'
+commands:
+  loadprobe:
+    description: Isolated Paper load measurement (console only)

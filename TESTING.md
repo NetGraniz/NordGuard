@@ -1,5 +1,59 @@
 # Test record
 
+## Local moving-client comparison — 2026-10-11
+
+The frozen rc.8 archive was unchanged: SHA-256
+`ac976afc7023b7c9211b01f5396d287f4c41ea488c4b03f6b4ff7e6e66ddf9b1`.
+The installed archive in the control repeat matched. Production was not
+accessed. The test-only [runner and measurement fixture](test-support/load/README.md)
+use a new loopback-only synthetic Paper world and offline accounts. Paper
+26.2-132, Oracle JDK 25, Windows, i3-1215U (6 cores / 8 logical processors),
+approximately 24 GiB RAM; server and generator share the host. Java maximum heap
+was 2 GiB, view/simulation distance 3. Each measured stage followed 15 seconds of
+moving warmup and recorded approximately 30 seconds of ordinary walking.
+
+Both runs connected 10, 25 and 50 clients, first without/with NordGuard and then
+in reverse order. Both result files contain six stage records and `error: null`.
+The first run (`load-paper-rc8-r1`) used synchronous PowerShell memory polling
+that paused the generator; retain it as exploratory data, not an overhead
+estimate. The repeat (`load-paper-rc8-r2`) reads free physical RAM directly and
+records generator CPU and event-loop delay. All checks used OBSERVE with the
+packet observer enabled and the experimental replica/prediction disabled.
+Guard status confirmed the native bridge and active session samples; cumulative
+completed corrections stayed zero.
+
+Control-repeat measurements (baseline = LoadProbe only):
+
+| Clients | Baseline median/p95 tick ms | NordGuard median/p95 tick ms | Baseline/guard moves per player/s | Generator p95 baseline/guard ms |
+| --- | --- | --- | --- | --- |
+| 10 | 1.5524 / 3.3308 | 2.2184 / 3.8149 | 19.996 / 20.002 | 37.91 / 39.09 |
+| 25 | 2.5309 / 4.3214 | 2.0820 / 3.9694 | 19.872 / 20.069 | 69.60 / 47.28 |
+| 50 | 3.3724 / 5.8181 | 4.5760 / 6.7624 | 15.669 / 12.885 | 376.70 / 471.60 |
+
+Every repeat stage measured approximately 20 server ticks per second. At 25
+clients the baseline/guard maximum ticks were 23.1985 / 7.0085 ms, process CPU
+1.131 / 0.859 occupied cores, GC management-counter time 78 / 16 ms and maximum
+sampled used heap 544,138,656 / 533,025,592 bytes. These are whole-server values;
+the lower guard result does not show a performance improvement. Short windows,
+JIT/GC timing, run order and other work on the shared laptop prevent assigning a
+precise marginal CPU, heap or tick cost to NordGuard.
+
+The 10/25-client repeat stages meet the later-added qualification rule: at least
+18 movement events per player per second and generator event-loop p95 below
+100 ms. At 50 connections the generator fails both criteria in both arms. Those
+50-client measurements show a generator bottleneck, **not a full-rate 50-player
+capacity pass**. The runner now retains such results but does not advance to a
+larger stage. The qualification rule was calculated retrospectively for these
+saved measurements; it was not active inside the completed runs.
+
+All test servers saved their worlds and exited; no test-port listener remained.
+No resource stop fired. Test startup logs retained the host's OSHI/Windows
+performance-counter warning and the flat-generator settings warning; neither
+was silently repaired or presented as a NordGuard failure. This is a short
+Paper walking-only check, not a Folia load test, combat/building workload,
+production-plugin compatibility check, leak test, or proof of 600-player
+capacity. Broader stage-4 validation remains open; no stable release is declared.
+
 ## 0.5.0-rc.8 — self context and validated FIFO fixtures
 
 Date: 2026-10-10. Local runtime candidate: 166,181 bytes; SHA-256 `ac976afc7023b7c9211b01f5396d287f4c41ea488c4b03f6b4ff7e6e66ddf9b1`. Windows 11, Oracle JDK 25. Production was not accessed. Only fresh synthetic test worlds and accounts were used. The test helpers are not release contents.
