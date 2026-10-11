@@ -11,9 +11,10 @@ assert(rootArg && java && seedArg && modulesArg,'root java seed modules required
 const root=path.resolve(rootArg), seed=path.resolve(seedArg), project=path.resolve(__dirname,'../..');
 assert(path.basename(root).startsWith('nordguard-test-') && !fs.existsSync(root),'Fresh isolated root required');
 const mineflayer=require(path.join(path.resolve(modulesArg),'mineflayer'));
+const version=fs.readFileSync(path.join(project,'src/main/resources/plugin.yml'),'utf8').match(/^version: (.+)$/m)[1].trim();
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const results=[];
-const candidateSha256=createHash('sha256').update(fs.readFileSync(path.join(project,'target/NordGuard-0.5.0-rc.8.jar'))).digest('hex');
+const candidateSha256=createHash('sha256').update(fs.readFileSync(path.join(project,`target/NordGuard-${version}.jar`))).digest('hex');
 let server,output='',exited=true,bots=[],fatal=null,resourceTimer;
 async function until(fn,label,timeout=60000) {
   const end=Date.now()+timeout;
@@ -47,7 +48,7 @@ async function run(mode) {
   fs.writeFileSync(path.join(dir,'server.properties'),properties+'\nlevel-seed=731116\nspawn-monsters=false\nspawn-animals=false\n');
   fs.copyFileSync(path.join(project,'test-support/build/LoadProbe.jar'),path.join(dir,'plugins/LoadProbe.jar'));
   if(mode==='guard') {
-    fs.copyFileSync(path.join(project,'target/NordGuard-0.5.0-rc.8.jar'),path.join(dir,'plugins/NordGuard-0.5.0-rc.8.jar'));
+    fs.copyFileSync(path.join(project,`target/NordGuard-${version}.jar`),path.join(dir,`plugins/NordGuard-${version}.jar`));
     fs.mkdirSync(path.join(dir,'plugins/NordGuard'));
     fs.copyFileSync(path.join(project,'src/main/resources/config.yml'),path.join(dir,'plugins/NordGuard/config.yml'));
   }
@@ -58,7 +59,7 @@ async function run(mode) {
   try {
     await until(()=>/Done \(/.test(output),'startup',180000);
     assert(!/Could not load|Error occurred while enabling|Exception in server tick loop/.test(output),'Server/plugin startup failure');
-    if(mode==='guard')assert(output.includes('NordGuard 0.5.0-rc.8 enabled'));
+    if(mode==='guard')assert(output.includes(`NordGuard ${version} enabled`));
     // Remove collision and hunger variation; both arms use identical settings.
     await command('difficulty peaceful',/difficulty|already set/i);
     server.stdin.write('gamerule minecraft:spawn_mobs false\n');
@@ -127,5 +128,5 @@ async function run(mode) {
   const order=process.env.NORD_LOAD_REVERSE==='1'?['guard','baseline']:['baseline','guard'];
   try {for(const mode of order)await run(mode);}
   catch(e){error=e.stack;console.error(error);process.exitCode=1;}
-  finally {await stop();fs.writeFileSync(path.join(root,'load-results.json'),JSON.stringify({platform:'Paper',guardVersion:'0.5.0-rc.8',candidateSha256,order,stages:[10,25,50],measurementSeconds:30,defaultObserve:true,replica:false,prediction:false,results,error},null,2));}
+  finally {await stop();fs.writeFileSync(path.join(root,'load-results.json'),JSON.stringify({platform:'Paper',guardVersion:version,candidateSha256,order,stages:[10,25,50],measurementSeconds:30,defaultObserve:true,replica:false,prediction:false,results,error},null,2));}
 })();

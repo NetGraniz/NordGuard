@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 — published release
+
+- Publish the rc.8 implementation as a regular release. Change version metadata only; keep check logic, thresholds, permissions and configuration defaults unchanged.
+- Keep all checks in OBSERVE by default, experimental replica/prediction disabled and automatic bans/kicks absent. Existing selected modes remain unchanged on upgrade.
+- Record the local 10/25-client Paper comparison and the 50-client generator bottleneck. Sustained 600-player capacity, Folia load and production-plugin interactions are not established by this release.
+
 ## 0.5.0-rc.8 — preserve observed world across player metadata
 
 - Separate self attributes, effects and entity metadata from ambiguous world/barrier transitions. These packets still reset physics confidence and the observation-only predictor, but no longer discard the observed chunk stream or acknowledge pending block changes.

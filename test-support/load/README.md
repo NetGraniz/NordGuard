@@ -1,7 +1,7 @@
 # Local moving-client comparison
 
-This fixture compares a fresh Paper server with and without the frozen NordGuard
-0.5.0-rc.8 JAR. It does not modify that JAR. LoadProbe is test-only and must not be
+This fixture compares a fresh Paper server with and without the built NordGuard
+JAR whose version matches `plugin.yml`. It does not modify that JAR. LoadProbe is test-only and must not be
 installed on a public server. Its tick measurement uses Paper's
 `ServerTickEndEvent`; this is **not a Folia benchmark**.
 

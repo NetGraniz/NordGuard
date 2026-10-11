@@ -1,6 +1,6 @@
 # Wurst coverage map
 
-NordGuard 0.5.0-rc.8, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. Packet freshness can defer stationary owner samples; the timeline does not add new enforced cheat classifiers. Horizontal catch-up allowance is bounded and comes from owner ticks, not client packet counts.
+NordGuard 0.5.0, Minecraft 26.2. Check logic is unchanged from rc.8. This is a scope map, not a claim that every listed client feature has been blocked. Packet freshness can defer stationary owner samples; the timeline does not add new enforced cheat classifiers. Horizontal catch-up allowance is bounded and comes from owner ticks, not client packet counts.
 
 The final rc.8 native-client matrix detects and corrects Flight, SpeedHack, Spider and Jesus with the installed Wurst 7.56 client at three delay profiles on the tested Paper and Folia builds. Short default-setting reproductions are not a bypass audit. The relay used in earlier runs could reorder TCP fragments, so those latency results are historical observations rather than reliable FIFO-network evidence. The corrected fixture has a byte-order regression; its passing narrow matrix does not validate every terrain, transition or production CORRECT mode. Broader stage-4 validation remains open. See [TESTING.md](TESTING.md).
 

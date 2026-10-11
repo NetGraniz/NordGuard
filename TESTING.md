@@ -1,5 +1,29 @@
 # Test record
 
+## 0.5.0 — release packaging verification, 2026-10-11
+
+Published as a regular release at the owner's request with the rc.8 check
+implementation unchanged. The release JAR is 166,166 bytes, SHA-256
+`71f8aa99336c9c70539bfd5faed53cec8bb0e70ba2664c017dd34d204399d237`.
+All 76 `.class` entries and `config.yml` match the frozen rc.8 archive byte for
+byte; version metadata changed. Maven verify passed 247 tests with no failures,
+errors or skips.
+
+The release archive passed a fresh isolated packaging smoke check on Paper
+26.2-132 and Folia 26.2-7: startup reports version 0.5.0, an offline client joins,
+native Ping/Pong acknowledgement is observed, console status/reload work, all 17
+checks default to OBSERVE and completed corrections remain zero. Both installed
+JAR hashes match the release hash. Both result files contain `error: null` and
+`exited: true`; test worlds were saved and no test-port listener remained.
+`test-support/release-smoke.cjs` records these packaging checks; it is not a
+repeat of the full native matrix or a new load test. No test helper is packaged
+in the release JAR.
+
+Configuration defaults, permissions and enforcement behavior are unchanged.
+The earlier rc.8 behavioral evidence and its limitations still apply. Regular
+release publication is not new evidence of 600-player capacity, broad bypass
+coverage or compatibility with production plugins. Production was not accessed.
+
 ## Local moving-client comparison — 2026-10-11
 
 The frozen rc.8 archive was unchanged: SHA-256

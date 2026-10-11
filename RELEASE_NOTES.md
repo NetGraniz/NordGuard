@@ -1,23 +1,44 @@
-# NordGuard 0.5.0-rc.8 — preserve observed world across player state changes
+# NordGuard 0.5.0
 
-Release candidate for Minecraft 26.2 on Paper and Folia, Java 25. This is a prerelease, not a complete stable anticheat or a validated 600-player deployment. All checks default to OBSERVE. Existing configurations keep their selected modes; updating the JAR does not turn an existing CORRECT setting back into OBSERVE.
+Minecraft 26.2 on Paper and Folia; Java 25 required.
 
-## Changes
+This regular release publishes the rc.8 implementation with version metadata
+updated to 0.5.0. Check logic, thresholds, permissions and configuration defaults
+are unchanged. There are no automatic bans or kicks.
 
-Self attributes, effects and entity metadata now reset physics confidence without discarding the observed chunk stream. Pending block changes remain unknown until the matching barrier; these player-state packets cannot acknowledge them. Dimension changes, uncertain world data, barrier ambiguity and observer loss remain conservative.
+## Installation
 
-The test relay now uses an explicit FIFO queue and one monotonic head timer per direction. Its former independent timers failed a raw byte-order reproduction. Earlier latency results are qualified in the test record; no movement threshold or physics rule was relaxed for that test defect. CI verifies all 6,000 bytes in both directions.
+Stop the server, back up the existing plugin JAR and `plugins/NordGuard`, then
+replace the old NordGuard JAR with `NordGuard-0.5.0.jar`. Keep only one NordGuard
+JAR in `plugins`. Keep existing configuration and data; no migration or reset is
+required. Start the server and check `nordguard status` from its console.
 
-The native fixture adds terrain, effects and expiry, server-issued knockback, cobwebs, ladder ascent and a two-minute patrol with an optional isolated-server JFR recording. It requires fresh client-state snapshots and nonzero initial native predictor coverage. Test helpers, clients, logs and recordings are not bundled in the plugin.
+All 17 checks default to OBSERVE. Existing CORRECT settings remain CORRECT after
+the update; they are not reset automatically. Start with OBSERVE when evaluating
+legitimate gameplay in a new environment. Experimental world replica and packet
+prediction remain disabled by default; prediction is observation-only.
 
-## Validation and limits
+## Validation and scope
 
-Local verification and GitHub Actions run 38080182618 passed 247 unit tests and the separate FIFO byte regression. The final corrected-fixture Paper matrix passed 12 ordinary six-second cases and 12 actual Wurst cases; Folia passed those cases plus 11 extended ordinary scenarios. No ordinary movement counter or correction increased. All 24 hostile cases required their own check evidence and a completed NordGuard correction. Results, exact runtime builds, hashes, profiling scope and failed intermediate runs are recorded in [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md).
+The rc.8 implementation passed 247 unit tests, 91 synthetic runtime assertions
+on each platform, the corrected-fixture native client matrix on Paper and Folia,
+and a narrow set of actual Wurst Flight/SpeedHack/Spider/Jesus reproductions.
+Folia also passed 11 extended ordinary scenarios, including a two-minute patrol.
+These checks are not a universal bypass audit.
 
-The same archive passed all 91 synthetic server-runtime assertions on each platform, including repeated returns, teleports, fall damage, action gates, delayed traffic, reload and observer cleanup. All four final installed copies matched the candidate hash, test servers stopped cleanly, and no test listeners remained.
+The local Paper comparison kept approximately 20 server ticks per second with
+10 and 25 moving synthetic clients, with and without NordGuard. At 50 connections
+the shared-host generator lost movement cadence in both arms; that stage is not
+a full-rate 50-player capacity pass. No sustained 600-player or Folia load claim
+is made. Broader elytra/transitions, cross-region combat and production-plugin
+interactions remain unvalidated. Publishing this release does not remove those
+limits.
 
-Initial native predictor seeds, accepted frames and trials are now nonzero on both platforms. Those counters include stationary frames; later unknown geometry still defers. The predictor and replica remain opt-in, disabled by default and unable to punish players. Full acknowledged attribute history, special/entity-collision physics, broader elytra/transitions and production-plugin interactions remain unvalidated.
+See [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md) for
+runtime builds, archive hashes, measurements and retained development failures.
+See [COVERAGE.md](https://github.com/NetGraniz/NordGuard/blob/main/COVERAGE.md) for
+individual check scope. Production worlds, configurations and account data were
+not accessed or changed for this release.
 
-The main change adds no world scan, repeating task or dependency and retains existing cache/work bounds. A two-minute one-player JFR recording is not an A/B overhead comparison or distributed capacity proof. A separate sustained load test is still needed for the intended 600-player deployment. No automatic bans or kicks were added. Production configurations, worlds and account data were not accessed or changed.
-
-Candidate JAR: 166,181 bytes. SHA-256: `ac976afc7023b7c9211b01f5396d287f4c41ea488c4b03f6b4ff7e6e66ddf9b1`.
+JAR size: 166,166 bytes. SHA-256:
+`71f8aa99336c9c70539bfd5faed53cec8bb0e70ba2664c017dd34d204399d237`.
