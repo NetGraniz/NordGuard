@@ -2,6 +2,7 @@
 // Deliberately Paper-only, loopback-only, fresh synthetic world, bounded stages.
 const fs=require('node:fs'), path=require('node:path'), net=require('node:net');
 const assert=require('node:assert/strict');
+const checkSessions=require('./session-count.cjs');
 const {spawn}=require('node:child_process');
 const os=require('node:os');
 const {createHash}=require('node:crypto');
@@ -117,7 +118,10 @@ async function run(mode) {
         if(!workloadQualified) {console.log(mode+': generator/cadence limited; no larger stage');break;}
       } finally {clearInterval(patrol);bots.forEach(b=>b.clearControlStates());}
     }
-    if(mode==='guard')await command('nordguard status',/sessions=50/);
+    if(mode==='guard') {
+      const status=await command('nordguard status',/\bsessions=(\d+)\b/);
+      checkSessions(status[0],bots.length);
+    }
   } finally {await stop();fs.writeFileSync(path.join(dir,'load-output.log'),output);}
 }
 (async()=>{

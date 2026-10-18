@@ -28,14 +28,13 @@ final class ActionGuard implements Listener {
         Policy policy;
         int grace, sequence, ticks, spatial;
         long lastTick;
-        long wallSince;
-        int wallHash;
+        final WallWindow wall=new WallWindow();
         volatile History history;
         Dig dig;
         ActionBudget attacks=new ActionBudget(), breaks=new ActionBudget(), places=new ActionBudget();
         void reset(Policy next,int serial,int delay) {
             policy=next;sequence=serial;grace=delay;history=null;dig=null;
-            wallSince=0;
+            wall.reset();
             attacks=new ActionBudget();breaks=new ActionBudget();places=new ActionBudget();
         }
     }
@@ -57,6 +56,7 @@ final class ActionGuard implements Listener {
         if(s.policy!=policy || s.sequence!=sequence || now-s.lastTick>policy.maxGapNanos())
             s.reset(policy,sequence,s.policy==null?policy.joinGrace():policy.transitionGrace());
         s.lastTick=now;s.ticks++;s.spatial=0;
+        s.wall.expire(now);
         if(s.grace>0) s.grace--;
         // Two snapshots, at most ten publications per second. No entity search or per-player task.
         if((s.ticks&1)==0 && (on(policy,Check.REACH)||on(policy,Check.WALLHIT))) {
@@ -104,7 +104,9 @@ final class ActionGuard implements Listener {
         try { checkAttack(event); } finally { host.actionTiming(System.nanoTime()-start); }
     }
     private void checkAttack(PrePlayerAttackEntityEvent event) {
-        Player p=event.getPlayer();State s=ready(p);if(s==null || !event.willAttack()) return;
+        Player p=event.getPlayer();State s=ready(p);if(s==null) return;
+        if(!event.willAttack()) {s.wall.reset();return;}
+        boolean observedWall=false;
         long now=System.nanoTime();var limits=s.policy.actions();
         boolean cancel=rate(p,s,Check.ATTACKRATE,s.attacks,limits.attacksPerSecond(),now);
         if(on(s.policy,Check.REACH)||on(s.policy,Check.WALLHIT)) {
@@ -147,15 +149,14 @@ final class ActionGuard implements Listener {
                             && (ownPrior==null || scan.obscured(ownPrior.eye,latest.box)
                             && (prior==null || scan.obscured(ownPrior.eye,prior.box)));
                     if(blocked) {
-                        int hash=scan.solids().hashCode();
-                        if(s.wallSince==0 || s.wallHash!=hash) { s.wallHash=hash;s.wallSince=now; }
-                        // Allow a just-placed wall to settle before using current terrain against lagged attacks.
-                        if(now-s.wallSince>=200_000_000L)
-                            cancel|=violation(p,Check.WALLHIT,"all sampled sight lines cross stable full solid cubes");
-                    } else s.wallSince=0;
+                        observedWall=true;
+                        if(s.wall.blocked(world,target.getUniqueId(),scan.solids(),now))
+                            cancel|=violation(p,Check.WALLHIT,"repeated sight-line observations cross matching full solid cubes");
+                    }
                 }
             }
         }
+        if(!observedWall)s.wall.reset();
         if(cancel) { event.setCancelled(true);host.actionCancelled(); }
     }
     static Geometry.Box include(Geometry.Box a,Geometry.Box b) {

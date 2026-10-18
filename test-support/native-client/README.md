@@ -31,4 +31,6 @@ Set `NORD_NATIVE_PROFILE=1` together with the extended matrix to record the isol
 
 The runner also requires positive predictor seeds, accepted frames and candidate trials during the initial zero-added-delay walking case. It does not force chunk resends. Later unknown geometry and unsupported contexts still defer; positive initial coverage does not validate the full predictor.
 
+After the movement matrix, the helper disables and enables the same plugin instance twice while the client remains connected. Each cycle requires channel cleanup, an attached session, fresh native acknowledgements and progressing owner samples. This tests lifecycle recovery; it does not recommend production hot-reloading.
+
 Local outputs include `native-results.json`, server/client logs and prediction diagnostics. Keep raw logs, worlds, player data and generated JARs out of Git. Publish an aggregate result in `TESTING.md`, including failing cases. These single-client tests do not validate 600-player capacity, every Wurst feature, cross-region combat, all special movement physics or a stable correction mode.

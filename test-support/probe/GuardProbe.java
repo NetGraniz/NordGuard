@@ -118,6 +118,12 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 } else if(action.equals("collisionnative")) {
                     CollisionNativeProbe.run((JavaPlugin)Bukkit.getPluginManager().getPlugin("NordGuard"),name->getLogger().info("GUARD_ACTION_PASS "+name));
                     getLogger().info("GUARD_COLLISION_NATIVE_DONE");
+                } else if(action.equals("enableguard")) {
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");
+                    Bukkit.getGlobalRegionScheduler().run(this,ignored->{
+                        Bukkit.getPluginManager().enablePlugin(guard);
+                        getLogger().info("GUARD_PLUGIN_REENABLED");
+                    });
                 } else if (action.equals("disableguard")) {
                     Object nativePlayer=player.getClass().getMethod("getHandle").invoke(player);
                     Object listener=nativePlayer.getClass().getField("connection").get(nativePlayer);
@@ -456,15 +462,29 @@ public final class GuardProbe extends JavaPlugin implements Listener {
             select(p,Check.WALLHIT,Policy.Mode.CORRECT);
             actionPass("new_wall_settling_grace",!attackEvent(p,close).isCancelled());
             // Real delay on the owner's scheduler, never sleep or wait on the region thread.
-            long wallDeadline=System.nanoTime()+300_000_000L;
+            long[] wallDeadline={System.nanoTime()+300_000_000L};int[] wallPhase={0};
             p.getScheduler().runAtFixedRate(this,task->{
-                if(System.nanoTime()<wallDeadline) return;
-                task.cancel();
                 try {
-                    actionPass("stable_wall_hit_cancelled",attackEvent(p,close).isCancelled());
-                    getLogger().info("GUARD_ACTIONS_DONE");
-                } catch(Throwable error) { getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",error); }
-                finally {close.remove();distant.remove();}
+                    if(wallPhase[0]==0) {
+                        var hit=attackEvent(p,close);
+                        if(System.nanoTime()<wallDeadline[0])return;
+                        actionPass("repeated_wall_hit_cancelled",hit.isCancelled());wallPhase[0]=1;
+                    } else if(wallPhase[0]==1) {
+                        door.setType(Material.OAK_TRAPDOOR,false);
+                        actionPass("unknown_wall_observation_deferred",!attackEvent(p,close).isCancelled());wallPhase[0]=2;
+                    } else if(wallPhase[0]==2) {
+                        door.setType(Material.STONE,false);
+                        actionPass("restored_wall_starts_new_window",!attackEvent(p,close).isCancelled());
+                        wallDeadline[0]=System.nanoTime()+300_000_000L;wallPhase[0]=3;
+                    } else {
+                        if(System.nanoTime()<wallDeadline[0])return;
+                        actionPass("expired_wall_confirmation_not_reused",!attackEvent(p,close).isCancelled());
+                        task.cancel();close.remove();distant.remove();getLogger().info("GUARD_ACTIONS_DONE");
+                    }
+                } catch(Throwable error) {
+                    task.cancel();close.remove();distant.remove();
+                    getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",error);
+                }
             },()->{},1,1);
         } catch(Throwable error) {close.remove();distant.remove();throw error;}
     }

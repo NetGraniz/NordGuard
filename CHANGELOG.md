@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — audit corrections
+
+- Replace adjacent-displacement Flight acceleration with a bounded cumulative descending envelope. Cover ordinary/batched falls, slowfall, hover, large downward bursts and changing server attributes without restarting the clock.
+- Account for batched item-use movement with separate bounded debt and reserve. Ending use does not forgive unpaid excess; dirty movement cannot refresh a return anchor.
+- Seed both movement history and the owner position from a validated successful setback, preserving late movement that arrives during grace.
+- Allow only one queued/executing diagnostic probe per channel; discard probes older than 500 ms and release the gate after errors/rejection.
+- Match WallHit observations by world, target and exact geometry. Expire after a gap above 200 ms and discard unknown/skipped observations. No continuous terrain-history claim is made.
+- Clear the shutdown flag on enable. Fix the load fixture's early-stop session check to use the actual connected population instead of always waiting for 50.
+- Keep schema, permissions, OBSERVE defaults and opt-in replica/prediction unchanged. Add no repeating task, dependency or new world scan.
+
 ## 0.5.0 — published release
 
 - Publish the rc.8 implementation as a regular release. Change version metadata only; keep check logic, thresholds, permissions and configuration defaults unchanged.

@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.0 publishes the rc.8 implementation without changing check logic, thresholds or configuration defaults. It preserves the observed chunk stream across self attributes, effects and metadata changes while still resetting physics confidence. Grounded idle samples retain their normal support/return-anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This release does not claim complete cheat coverage or validated 600-player capacity.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.1 fixes batched fall and item-use observations, bounds queued diagnostic probes and expires stale WallHit observations. Successful setbacks seed movement history from the confirmed destination so late movement is still measured. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This release does not claim complete cheat coverage or validated 600-player capacity.
 
 The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases on each tested platform; Folia also passes 11 extended ordinary scenarios, including a two-minute patrol. Initial predictor seeds and accepted frames are now nonzero. These are narrow checks, not universal correction safety or 600-player capacity. Stage 4's broader validation remains open. Keep movement checks in OBSERVE. Earlier relay results are qualified in [TESTING.md](TESTING.md), alongside current evidence and remaining gates.
 
@@ -19,7 +19,7 @@ The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases o
 | NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. |
 | NoClip | Near-horizontal sampled paths crossing a full solid cube, with clear endpoints. Only bodies at least 1.5 blocks high, displacement above 0.8 and below 4 blocks, and vertical change below 0.05 are checked. |
 | Reach | Eye-to-target-box distance beyond the server range, including the actual ATTACK_RANGE weapon component. Recent player snapshots provide a small lag allowance. |
-| WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching blocked geometry must persist for at least 200 ms. An approximation, not complete visibility reconstruction. |
+| WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching world, target and exact geometry must be observed repeatedly over 200 ms, with no gap above 200 ms. This is sampled visibility, not continuous block history. |
 | AttackRate | A configurable action budget; 40 attacks/second and one second of burst credit by default. Fast legal clicking is not classified as Kill Aura. |
 | BlockReach | Breaking or placing beyond the server block-interaction attribute plus a margin. |
 | FastBreak | Premature destruction with an observed mining start. Uses native break speed, the 26.2 early-stop threshold and wall-clock lag compensation. |
@@ -92,7 +92,9 @@ Speed uses the server movement-speed attribute, walk speed and accepted velocity
 
 Existing schema-version 1 configurations remain readable. Missing modes default to OBSERVE and missing action limits use the defaults above; the plugin does not silently enable corrections or overwrite your settings. Add new entries explicitly when selecting their modes. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
 
-NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Quick use/release loops and item-use packet ordering are not covered. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
+NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Owner ticks repay a separate bounded slowdown debt/reserve; ending use clears spare credit but does not forgive unpaid excess. Synthetic use/release regressions are covered, not every native item-use packet ordering. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
+
+Flight uses a cumulative descending envelope rather than treating a multi-step displacement as one-tick velocity. A fixed three-sample arrival slack and bounded downward rebase tolerate grouping without trusting client tick counts. Received hover still accumulates evidence; silent transport intervals do not create it. Server attribute changes do not restart the envelope clock. This is not full client-physics reconstruction.
 
 Join and transition grace values use player scheduler ticks. Long sampling gaps clear history. Accepted velocity events briefly reset history and add a capped, decaying impulse allowance. Unrecognized or special environments defer checks.
 
@@ -211,7 +213,7 @@ See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented 
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.5.0.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.5.1.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

@@ -1,5 +1,99 @@
 # Test record
 
+## 0.5.1 — audit-fix verification, 2026-10-18
+
+Release archive: 170,659 bytes, SHA-256
+`c2ca78c6994a6366fd678327108032541644b0751413d057c72166126ebb7946`.
+The final archive includes the OFF-mode guard described below; earlier development
+archives are not identified as this exact binary. Tests use synthetic accounts,
+fresh loopback-only worlds, the existing accepted test EULA, Paper 26.2-132 and
+Folia 26.2-7. No production configuration, world or account data are used.
+
+Maven verify passed 276 unit tests with no failures/errors/skips. This adds 29
+regressions to the former 247: ordinary and grouped natural falls, slowed item
+batches and actual excess, slow descent/hover, large downward bursts, attribute
+changes, repeated item release/restart, credit caps, reset equality, OFF-mode
+anchor cleanliness, seeded late-move debt, concurrent/stale/rejected probe
+dispatch, and exact/expired WallHit observations including a hash collision.
+The Node session-count suite passed seven cases for early-stop populations
+10/25/50, both stated orders and non-substring count matching. Those parser tests
+do not run the full multi-client harness or establish capacity.
+
+Flight now uses a cumulative descending envelope with fixed three-sample slack,
+no client-count time credit, and a downward-only bounded rebase. Received hover
+still accumulates evidence. Silent transport intervals do not advance the
+vertical clock. Attribute changes widen the same envelope conservatively rather
+than restarting its clock. NoSlow carries unpaid debt across use/release and
+limits earned credit; OFF does not dirty otherwise legal return anchors.
+Successful setbacks seed both the model and owner position from the checked
+destination. Diagnostic dispatch has one queued/executing task per Handle and
+drops stale probes before BARRIER_SENT. WallHit requires exact world/target/
+geometry matches and expires gaps above 200 ms; it does not claim uninterrupted
+terrain history between observations. All schema/modes/defaults remain compatible.
+
+Development failures remain available locally. `paper-051-r1` failed the repeated
+speed-anchor assertion: the safe position advanced from x=2 to x=3.5 after a
+late move during setback grace. This exposed a real loss of displacement after
+reset; the destination-seeding fix was added, without changing SPEED thresholds.
+`paper-051-r2` then passed that case but failed a legacy WallHit fixture that
+expected a lone observation after a 300 ms gap to cancel. The updated fixture
+instead checks repeated observations plus unknown/restored/expired cases;
+the production TTL was not widened to satisfy the old fixture.
+
+The intermediate `paper-051-r3` archive
+`696c3021c5a8a48905b7b1c4bc3f8eeceeb30a30e2d7c4027db883f125dc9288`
+passed 94 runtime assertions. It precedes the final OFF-mode guard and is not
+the release binary. `folia-051-r1` used that intermediate archive and failed the
+immediate server-side mining-result check. The installed Mineflayer resolves
+digging after its own optimistic local block update, before server completion.
+The fixture now requires the actual server block-change packet to air before
+checking server state; it does not mask a cancellation by retrying the break.
+The earlier failed run is not counted as a successful Folia runtime pass.
+
+The final release archive passed 94 runtime assertions on each of Paper
+(`paper-051-r4`) and Folia (`folia-051-r2`), with `error: null` in both reports.
+These include the seeded repeated-speed setback, normal and batched movement,
+NoSlow, native fall recovery, action gates, exact/expired wall observations,
+actual client mining, ordered network delay/jitter, packet reload and cleanup.
+
+`native-folia-051-r1` passed all twelve ordinary native movement cases at
+0/100/300 ms per direction (six-second input; ordered jitter at 300 ms), but
+failed the positive predictor-coverage requirement before launching Wurst.
+Replica diagnostics showed zero decoded chunks and zero prediction seeds or
+trials. Unknown geometry deferred instead of treating missing chunks as air.
+The helper's support-floor check is read-only; its terrain preparation changes
+blocks and teleports within the same chunk, which does not supply a missing
+full-chunk base. Missing initial capture is consistent with the log, not proven
+as the only cause. The dispatch gate is not implicated by these diagnostics:
+native acknowledgements continued and the packet dropped counter was zero.
+The runner now records missing predictor coverage as a failure and continues
+the remaining matrix; it still exits unsuccessfully when any failure remains.
+This experimental, default-disabled mode is not claimed as verified by that run.
+
+The unchanged final archive then passed all 32 assertions in
+`native-folia-051-r2`, with `error: null`, no recorded failures and
+`ordinaryOnly: false`. All twelve ordinary cases again left movement counters
+and completed corrections unchanged. This repeat also had positive native
+prediction seeds, accepted frames and candidate trials without forced resends.
+Actual Wurst Flight, SpeedHack, Spider and Jesus/WaterWalk each increased their
+own check counter and completed a correction at 0/100/300 ms per direction.
+Two disable/enable cycles of the same instance restored the connected session,
+native acknowledgements and owner samples. The test server stopped normally;
+its installed JAR hash matches the release archive. Extended terrain, soak and
+JFR profiling were not repeated in this run.
+
+The successful repeat does not erase the first run's missing initial chunk
+coverage. Experimental capture bootstrap remains timing-sensitive in this
+fixture and needs separate investigation; no production workaround or forced
+chunk resend was added to make this release pass.
+
+No new dependency, repeating task or world scan is added by these fixes.
+Model workloads and isolated one-player fixtures remain insufficient evidence
+of sustained 600-player capacity, production-plugin interactions or every
+legitimate/client-cheat scenario. Experimental replica/prediction remain opt-in,
+disabled by default and observation-only. Existing CORRECT settings are not
+reset by updating the JAR.
+
 ## 0.5.0 — release packaging verification, 2026-10-11
 
 Published as a regular release at the owner's request with the rc.8 check

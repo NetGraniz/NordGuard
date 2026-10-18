@@ -1,44 +1,55 @@
-# NordGuard 0.5.0
+# NordGuard 0.5.1
 
 Minecraft 26.2 on Paper and Folia; Java 25 required.
 
-This regular release publishes the rc.8 implementation with version metadata
-updated to 0.5.0. Check logic, thresholds, permissions and configuration defaults
-are unchanged. There are no automatic bans or kicks.
+## Fixes
+
+- Flight checks a bounded cumulative descending envelope instead of comparing
+  a multi-step displacement with a one-step velocity. Client packet counts do not
+  buy time; server attribute changes do not restart the envelope clock.
+- NoSlow accounts for batched item-use movement with bounded owner-time debt and
+  credit. Ending use does not erase unpaid excess or mint another reserve.
+- Successful setbacks seed movement history and owner position from the checked
+  destination so late movement during grace remains measurable.
+- Diagnostic Ping dispatch permits one queued/executing task per channel and
+  discards a queued probe older than 500 ms.
+- WallHit compares exact geometry for the same world and target, expires gaps
+  above 200 ms and resets unknown/skipped observations. These are repeated
+  observations, not continuous block-history reconstruction.
+- The shutdown flag resets on enable. The local load fixture checks the actual
+  connected population after an early stop instead of always expecting 50.
+
+No new dependency, repeating task or world scan was added. Existing schema,
+permissions, configuration and data remain compatible. All checks default to
+OBSERVE; an existing CORRECT setting is not reset automatically. Experimental
+replica/prediction remain disabled by default; there are no automatic bans/kicks.
+
+## Verification
+
+276 unit tests and seven session-count cases passed. The final archive passed
+94 runtime assertions on each of Paper and Folia, then 32 native Folia checks
+including actual Wurst movement and two disable/enable cycles. An earlier native
+run lacked initial chunk/predictor coverage; the unchanged JAR passed the repeat.
+That timing-sensitive experimental bootstrap remains a recorded limitation,
+not a claim of stable predictor coverage. Extended/600-player tests were not
+repeated. Full evidence and failed runs are retained in TESTING.md.
+
+Archive: 170,659 bytes. SHA-256:
+`c2ca78c6994a6366fd678327108032541644b0751413d057c72166126ebb7946`.
 
 ## Installation
 
-Stop the server, back up the existing plugin JAR and `plugins/NordGuard`, then
-replace the old NordGuard JAR with `NordGuard-0.5.0.jar`. Keep only one NordGuard
-JAR in `plugins`. Keep existing configuration and data; no migration or reset is
-required. Start the server and check `nordguard status` from its console.
+Stop the server and keep a backup of the old JAR and `plugins/NordGuard`.
+Remove the old NordGuard JAR from active `plugins` and keep exactly one:
+`NordGuard-0.5.1.jar`. Preserve existing configuration and data, then restart.
+Do not restart with both the old and new JAR present. Staging a new JAR alongside
+the old one does not mean installation has been completed.
 
-All 17 checks default to OBSERVE. Existing CORRECT settings remain CORRECT after
-the update; they are not reset automatically. Start with OBSERVE when evaluating
-legitimate gameplay in a new environment. Experimental world replica and packet
-prediction remain disabled by default; prediction is observation-only.
+## Scope
 
-## Validation and scope
-
-The rc.8 implementation passed 247 unit tests, 91 synthetic runtime assertions
-on each platform, the corrected-fixture native client matrix on Paper and Folia,
-and a narrow set of actual Wurst Flight/SpeedHack/Spider/Jesus reproductions.
-Folia also passed 11 extended ordinary scenarios, including a two-minute patrol.
-These checks are not a universal bypass audit.
-
-The local Paper comparison kept approximately 20 server ticks per second with
-10 and 25 moving synthetic clients, with and without NordGuard. At 50 connections
-the shared-host generator lost movement cadence in both arms; that stage is not
-a full-rate 50-player capacity pass. No sustained 600-player or Folia load claim
-is made. Broader elytra/transitions, cross-region combat and production-plugin
-interactions remain unvalidated. Publishing this release does not remove those
-limits.
-
-See [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md) for
-runtime builds, archive hashes, measurements and retained development failures.
-See [COVERAGE.md](https://github.com/NetGraniz/NordGuard/blob/main/COVERAGE.md) for
-individual check scope. Production worlds, configurations and account data were
-not accessed or changed for this release.
-
-JAR size: 166,166 bytes. SHA-256:
-`71f8aa99336c9c70539bfd5faed53cec8bb0e70ba2664c017dd34d204399d237`.
+This is a targeted audit-fix release, not new support for all client features,
+a universal bypass audit, or evidence of 600-player capacity. Full combat,
+elytra/vehicle physics and production-plugin interactions remain outside the
+verified scope. See [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md)
+for current results, retained failed runs and archive hashes, and
+[COVERAGE.md](https://github.com/NetGraniz/NordGuard/blob/main/COVERAGE.md) for check scope.

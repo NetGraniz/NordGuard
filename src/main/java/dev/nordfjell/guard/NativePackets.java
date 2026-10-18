@@ -143,12 +143,13 @@ final class NativePackets {
     }
     void probe(Handle target,int id) {
         if(target.closing) return;
-        try { target.transport.eventLoop().execute(()->target.sendProbe(id)); }
+        try { target.probeDispatch.submit(target.transport.eventLoop(),()->target.sendProbe(id)); }
         catch(RejectedExecutionException closedLoop) { target.closing=true; }
     }
 
     final class Handle implements AutoCloseable {
         private final Channel transport;
+        private final ProbeDispatch probeDispatch=new ProbeDispatch();
         private final int entityId;
         private final Sink sink;
         private final java.util.function.IntPredicate copyBudget;

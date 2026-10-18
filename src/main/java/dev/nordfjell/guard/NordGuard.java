@@ -74,6 +74,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
     }
 
     @Override public void onEnable() {
+        shuttingDown=false;
         saveDefaultConfig();
         try {
             policy = readPolicy();
@@ -516,9 +517,10 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 var effects = player.getActiveItem().getData(io.papermc.paper.datacomponent.DataComponentTypes.USE_EFFECTS);
                 useMultiplier = effects == null ? .2 : effects.speedMultiplier();
             }
-            var result = model.accept(new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
+            var movementFrame = new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
                     environment.wall(), false, speed, jump, attribute(player, Attribute.STEP_HEIGHT, .6),
-                    attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier), current, environment.supportY());
+                    attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier);
+            var result=model.accept(movementFrame,current,environment.supportY());
             boolean phased=false;
             if(current.modes().get(Check.NOCLIP)!=Policy.Mode.OFF && last!=null && environment.clear() && player.getBoundingBox().getHeight()>=1.5
                     && Math.abs(at.getY()-last.getY())<.05 && at.distanceSquared(last)>.64 && at.distanceSquared(last)<16) {
@@ -590,6 +592,13 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                     }
                                     safe = target.clone();
                                     safeCreatedNanos = System.nanoTime();
+                                     // Preserve displacement from the server-confirmed destination.
+                                     // Otherwise a late move during grace becomes an unmeasured origin.
+                                     model.accept(new MovementModel.Frame(target.getX(),target.getY(),target.getZ(),
+                                             landedEnvironment.ground(),landedEnvironment.wall(),false,
+                                             movementFrame.speed(),movementFrame.jump(),movementFrame.step(),movementFrame.gravity(),
+                                             landedEnvironment.liquidSurface(),player.isClimbing(),landedEnvironment.web(),movementFrame.useMultiplier()),policy);
+                                     last=target.clone();
                                     corrections.increment();
                                 } else {
                                     safe = null;

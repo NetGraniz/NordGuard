@@ -411,7 +411,19 @@ async function main() {
   const Vec3=bot.entity.position.constructor;
   const miningPosition=new Vec3(+fixture[2],+fixture[3],+fixture[4]);
   await until(()=>bot.blockAt(miningPosition)?.name==='stone','client stone update');
-  await bot.dig(bot.blockAt(miningPosition));
+  // Mineflayer resolves dig after its own optimistic block update, before the
+  // server necessarily processed STOP_DESTROY_BLOCK. Require a real wire update.
+  let confirmedMine=false;
+  const minedPacket=packet=>{
+    const at=packet.location;
+    if(at && at.x===miningPosition.x && at.y===miningPosition.y && at.z===miningPosition.z
+        && packet.type===bot.registry.blocksByName.air.minStateId)confirmedMine=true;
+  };
+  bot._client.on('block_change',minedPacket);
+  try {
+    await bot.dig(bot.blockAt(miningPosition));
+    await until(()=>confirmedMine,'server-confirmed ordinary mining',5000);
+  } finally {bot._client.removeListener('block_change',minedPacket);}
   await marker('guardprobe clientresult GuardFixture',/GUARD_CLIENT_DONE/);
   for(const name of output.slice(clientOffset).matchAll(/GUARD_ACTION_PASS ([a-z_0-9]+)/g)) pass('real client: '+name[1]);
   for(const [delay,jitter] of [[100,false],[300,false],[150,true]]) {

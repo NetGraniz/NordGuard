@@ -124,9 +124,12 @@ async function main(){
       fs.appendFileSync(path.join(root,'native-prediction.log'),inspect+'\n');
     }
   }
-  assert(predictionCoverage.some(p=>p.action==='walk'&&p.delay===0&&p.seeds>0&&p.accepted>0&&p.trials>0),
-    'Native ordinary prediction must actually seed and accept frames; zero coverage is not a pass');
-  pass('native ordinary predictor seeded and accepted real client frames without forced chunk resends');
+  if(predictionCoverage.some(p=>p.action==='walk'&&p.delay===0&&p.seeds>0&&p.accepted>0&&p.trials>0))
+    pass('native ordinary predictor seeded and accepted real client frames without forced chunk resends');
+  else {
+    const issue='Native ordinary prediction must actually seed and accept frames; zero coverage is not a pass';
+    failures.push(issue);console.log('FAIL: '+issue);
+  }
   if(extended){
     proxy.delay=100;proxy.jitter=true;
     for(const [scenario,action,terrain] of [['slabs','walk'],['ice','sprint'],['honey','walk'],['slime','jump'],
@@ -164,6 +167,19 @@ async function main(){
       else pass(`actual Wurst ${action}, ${delay}ms detected and corrected`);
     }
   }
+  }
+  proxy.delay=0;proxy.jitter=false;await prepare();
+  for(let cycle=1;cycle<=2;cycle++) {
+    await marker('guardprobe disableguard GuardFixture',/GUARD_PACKET_CLEANUP_PASS/);
+    await marker('guardprobe enableguard GuardFixture',/GUARD_PLUGIN_REENABLED/);
+    await sleep(1500);
+    const initial=await marker('nordguard status',/Samples=\d+/);
+    assert(/sessions=1\b/.test(initial),'Re-enabled plugin must attach the existing player');
+    const samples=+initial.match(/Samples=(\d+)/)[1];
+    await marker('nordguard inspect GuardFixture',/Barrier RTT ms=\d+, acks=[1-9]\d*/);
+    await sleep(200);const progressed=await marker('nordguard status',/Samples=\d+/);
+    assert(+progressed.match(/Samples=(\d+)/)[1]>samples,'Re-enabled plugin must resume sampling');
+    pass(`disable/enable same plugin instance resumes sessions and native acknowledgements, cycle ${cycle}`);
   }
   assert(!/Deferred player check after internal error|Cannot read world asynchronously|Packet diagnostics disabled for session|IllegalAccessError|GUARD_PROBE_FAIL/.test(serverOutput));
   pass('no NordGuard internal or region-access errors');

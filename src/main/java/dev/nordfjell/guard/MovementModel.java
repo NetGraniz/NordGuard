@@ -21,12 +21,15 @@ final class MovementModel {
     private Frame last;
     private int airTicks, groundTicks, jumpAge, descentAge;
     private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
+    private double slowDebt, slowCredit, slowLimit;
+    private final FlightEnvelope flight = new FlightEnvelope();
     private boolean falling;
     private final double[] scores = new double[Check.values().length];
 
     void reset() {
         last = null; airTicks = groundTicks = 0; jumpAge = descentAge = 100;
         lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
+        slowDebt=slowCredit=slowLimit=0;flight.reset();
         java.util.Arrays.fill(scores, 0);
     }
 
@@ -36,6 +39,7 @@ final class MovementModel {
         jumpAge = Math.min(100, jumpAge + 1);
         jumpMomentum *= .91;
         idleSpeedTick(last.speed() + jumpMomentum + .02);
+        idleSlowTick();
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
     }
@@ -44,6 +48,7 @@ final class MovementModel {
     void transportIdleTick() {
         if (last == null || last.exempt() || last.medium()) return;
         idleSpeedTick(last.speed() + jumpMomentum + .02);
+        idleSlowTick();
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
         // Preserve vertical history until data arrives. Only owner ticks create bounded allowance.
@@ -53,6 +58,22 @@ final class MovementModel {
         double repaid = Math.min(speedDebt, allowance);
         speedDebt -= repaid;
         idleSpeedCredit = Math.min(idleSpeedLimit, idleSpeedCredit + allowance - repaid);
+    }
+
+    private void idleSlowTick() {
+        if(last==null || !last.ground() || last.medium() || last.useMultiplier()>=.99) return;
+        slowAllowance(last.speed()*last.useMultiplier()+.035+jumpMomentum,0);
+    }
+
+    private void slowAllowance(double allowance,double horizontal) {
+        if(horizontal<1E-5) {
+            double repaid=Math.min(slowDebt,allowance);
+            slowDebt-=repaid;slowCredit=Math.min(slowLimit,slowCredit+allowance-repaid);
+        } else {
+            double required=Math.max(0,slowDebt+horizontal-allowance);
+            double spent=Math.min(slowCredit,required);
+            slowDebt=Math.min(100,required-spent);slowCredit-=spent;
+        }
     }
 
     Result accept(Frame next, Policy policy) {
@@ -76,9 +97,22 @@ final class MovementModel {
         groundTicks = next.ground() && last.ground() ? Math.min(100, groundTicks + 1) : 0;
         jumpAge = Math.min(100, jumpAge + 1);
         descentAge = Math.min(100, descentAge + 1);
-        score(Check.NOSLOW, groundTicks >= 6 && !next.medium() && !last.medium()
-                && next.useMultiplier() < .99 && last.useMultiplier() < .99
-                && horizontal > next.speed() * next.useMultiplier() + .035 + jumpMomentum, policy, flags);
+        boolean slowed=groundTicks>=6 && !next.medium() && !last.medium()
+                && next.useMultiplier()<.99 && last.useMultiplier()<.99;
+        if(policy.modes().get(Check.NOSLOW)==Policy.Mode.OFF) {
+            slowDebt=slowCredit=slowLimit=0;slowed=false;
+        } else if(slowed) {
+            slowLimit=next.speed()*next.useMultiplier()*policy.burstTicks();
+            slowCredit=Math.min(slowCredit,slowLimit);
+            slowAllowance(next.speed()*next.useMultiplier()+.035+jumpMomentum,horizontal);
+        } else {
+            slowCredit=slowLimit=0;
+            // Ending use does not forgive an unpaid excess. Only unused owner
+            // allowance repays it; a new use period cannot mint a fresh burst.
+            double spare=Math.max(0,next.speed()+.02-horizontal);
+            slowDebt=Math.max(0,slowDebt-Math.min(.035,spare));
+        }
+        score(Check.NOSLOW,slowed && slowDebt>.035,policy,flags);
         score(Check.WATERWALK, next.liquidSurface() && last.liquidSurface()
                 && !next.ground() && Math.abs(dy) <= .12, policy, flags, Math.max(10, policy.buffer()));
         score(Check.CLIMB, next.climbing() && last.climbing() && dy > .24,
@@ -92,6 +126,7 @@ final class MovementModel {
             score(Check.SPEED, false, policy, flags);
             score(Check.HIGHJUMP, false, policy, flags);
             speedDebt = jumpMomentum = idleSpeedCredit = 0; airTicks = 0; falling = false;
+            slowDebt=slowCredit=slowLimit=0;flight.reset();
             boolean supportedIdle = next.ground() && last.ground() && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
             peakY = next.y(); lastDy = dy; last = next;
@@ -136,8 +171,12 @@ final class MovementModel {
         if (!next.ground()) airTicks++; else airTicks = 0;
         double expectedDy = (lastDy - next.gravity()) * 0.98;
         int ascentAllowance = (int) Math.ceil(next.jump() / Math.max(.001, next.gravity())) + 6;
-        score(Check.FLIGHT, next.gravity() > .001 && airTicks > Math.max(12, ascentAllowance) && (dy > expectedDy + Math.min(.06, policy.verticalMargin())
-                || airTicks > Math.max(16, ascentAllowance) && dy > -0.03), policy, flags);
+        boolean aboveFlight=false;
+        if(next.ground() || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
+        else aboveFlight=flight.excess(next.y(),missedLanding?supportY:last.y(),next.jump(),next.gravity(),
+                jumpSteps!=0,ascentAllowance,policy.verticalMargin());
+        score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
+                && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);
         score(Check.SPIDER, next.gravity() > .001 && !last.ground() && !next.ground() && next.wall() && dy > .08
                 && dy > expectedDy + .04 + policy.verticalMargin() * .125,
                 policy, flags, Math.min(3, policy.buffer()));
@@ -150,7 +189,7 @@ final class MovementModel {
         lastDy = dy; last = next;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
-        return new Result(flags, landing, clean && speedDebt < 0.01);
+        return new Result(flags, landing, clean && speedDebt < 0.01 && slowDebt < .01);
     }
 
     private static int jumpSteps(double height, double jump, double gravity) {
