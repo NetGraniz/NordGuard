@@ -32,12 +32,12 @@ final class MovementModel {
     private int supportCount,supportCursor;
     private long ownerTick;
     private final FlightEnvelope flight = new FlightEnvelope();
-    private boolean falling;
+    private boolean falling,lastGround;
     private final double[] scores = new double[Check.values().length];
 
     void reset() {
         last = null; airTicks = groundTicks = idleTicks = 0; jumpAge = descentAge = 100;
-        lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
+        lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = lastGround = false;
         slowDebt=slowCredit=slowLimit=0;flight.reset();
         lastSupportY=Double.NaN;
         supportCount=supportCursor=0;ownerTick=0;
@@ -47,7 +47,7 @@ final class MovementModel {
     /** Account for elapsed owner time without repeating world queries. Credit is burst-bounded. */
     void stationaryTick() {
         ownerTick++;
-        if (last == null || !last.ground() || last.exempt() || last.medium()) return;
+        if (last == null || !lastGround || last.exempt() || last.medium()) return;
         jumpAge = Math.min(100, jumpAge + 1);
         jumpMomentum *= .91;
         idleSpeedTick(last.speed() + jumpMomentum + .02);
@@ -78,7 +78,7 @@ final class MovementModel {
     }
 
     private void idleSlowTick() {
-        if(last==null || !last.ground() || last.medium() || last.useMultiplier()>=.99) return;
+        if(last==null || !lastGround || last.medium() || last.useMultiplier()>=.99) return;
         slowAllowance(last.speed()*last.useMultiplier()+.035+jumpMomentum,0);
     }
 
@@ -100,7 +100,7 @@ final class MovementModel {
     Result accept(Frame next, Policy policy, double supportY) {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
-            reset(); last = next; peakY = next.y();lastSupportY=supportY;
+            reset(); last = next; lastGround=next.ground();peakY = next.y();lastSupportY=supportY;
             rememberSupport(supportY);
             idleSpeedLimit = next.speed() * policy.burstTicks();
             // One position after a reset proves no displacement, so it cannot replace a return anchor.
@@ -115,7 +115,19 @@ final class MovementModel {
             reset(); last = next;
             return new Result(flags, 0, false);
         }
-        groundTicks = next.ground() && last.ground() ? Math.min(100, groundTicks + 1) : 0;
+        double projectedY=last.y(),projectedVelocity=descentDy;
+        for(int step=0;step<arrivalTicks;step++) {
+            projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
+        }
+        // Collision resolution can clip Y against a ledge, then move the feet
+        // beyond it in X/Z. Exact contact still splits the fall without a jump.
+        boolean sweptGround=false;
+        if(!next.ground()&&!lastGround&&dy<-.001&&lastDy<=0&&descentAge<=2)
+            for(int i=0;i<supportCount;i++)if(ownerTick-supportTicks[i]<=arrivalTicks
+                    &&Math.abs(next.y()-supportHistory[i])<=1E-7&&last.y()>=supportHistory[i]
+                    &&projectedY<=supportHistory[i]+.01) {sweptGround=true;break;}
+        boolean nextGround=next.ground()||sweptGround;
+        groundTicks = nextGround && lastGround ? Math.min(100, groundTicks + 1) : 0;
         jumpAge = Math.min(100, jumpAge + 1);
         descentAge = Math.min(100, descentAge + 1);
         boolean slowed=groundTicks>=6 && !next.medium() && !last.medium()
@@ -149,26 +161,22 @@ final class MovementModel {
             speedDebt = jumpMomentum = idleSpeedCredit = 0; airTicks = 0; falling = false;
             slowDebt=slowCredit=slowLimit=0;flight.reset();lastSupportY=Double.NaN;
             supportCount=supportCursor=0;
-            boolean supportedIdle = next.ground() && last.ground() && horizontal < .01 && Math.abs(dy) < .01;
+            boolean supportedIdle = nextGround && lastGround && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
-            peakY = next.y(); lastDy = dy; last = next;
+            peakY = next.y(); lastDy = dy; last = next;lastGround=nextGround;
             return new Result(flags, 0, supportedIdle);
         }
         // Owner snapshots can coalesce the first few native steps of a jump.
         // Match their cumulative height; do not grant momentum to arbitrary micro-hops.
         jumpMomentum *= .91;
-        int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity(),arrivalTicks) : 0;
+        int jumpSteps = lastGround && !nextGround ? jumpSteps(dy, next.jump(), next.gravity(),arrivalTicks) : 0;
         // A batched landing/takeoff may have no grounded owner snapshot at all.
         // Require server collision support and descent near that floor, not the client ground bit.
         // The two-block floor scan may already see the next, lower step.
         // A tiny owner-time-bounded history preserves the swept ledge, without
         // another world scan, trusting client ground flags or granting wall grace.
         double takeoffSupport=Double.NaN;
-        double projectedY=last.y(),projectedVelocity=descentDy;
-        for(int step=0;step<arrivalTicks;step++) {
-            projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
-        }
-        boolean landingPossible = !last.ground() && !next.ground()
+        boolean landingPossible = !lastGround && !nextGround
                 && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0
                 // Landing and the first jump step can share a snapshot whose
                 // net displacement is still down. Require a real upward change
@@ -209,33 +217,33 @@ final class MovementModel {
         // Outstanding burst debt keeps the return anchor dirty, but a later
         // movement that repays it is not fresh evidence of speeding.
         score(Check.SPEED, horizontal>allowed && speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
-        if (next.ground()) {
+        if (nextGround) {
             score(Check.HIGHJUMP, dy > next.step() + policy.verticalMargin(), policy, flags);
         } else {
             score(Check.HIGHJUMP, jumpSteps == 0 && dy > next.jump() + policy.verticalMargin(), policy, flags);
         }
-        if (!next.ground()) airTicks++; else airTicks = 0;
+        if (!nextGround) airTicks++; else airTicks = 0;
         double expectedDy = (lastDy - next.gravity()) * 0.98;
         int ascentAllowance = (int) Math.ceil(next.jump() / Math.max(.001, next.gravity())) + 6;
         boolean aboveFlight=false;
-        if(next.ground() || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
+        if(nextGround || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
         else aboveFlight=flight.excess(next.y(),missedLanding?takeoffSupport:last.y(),next.jump(),next.gravity(),
                 jumpSteps!=0,ascentAllowance,policy.verticalMargin());
         score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
                 && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);
-        score(Check.SPIDER, jumpAge > policy.movement().spiderLaunchTicks() && next.gravity() > .001 && !last.ground() && !next.ground() && next.wall() && dy > .08
+        score(Check.SPIDER, jumpAge > policy.movement().spiderLaunchTicks() && next.gravity() > .001 && !lastGround && !nextGround && next.wall() && dy > .08
                 && dy > expectedDy + .04 + policy.verticalMargin() * .125,
                 policy, flags, Math.min(3, policy.buffer()));
-        if (!falling) { peakY = jumpSteps!=0?next.y():Math.max(last.y(), next.y()); falling = !next.ground(); }
+        if (!falling) { peakY = jumpSteps!=0?next.y():Math.max(last.y(), next.y()); falling = !nextGround; }
         else peakY = Math.max(peakY, next.y());
-        double landing = next.ground() && falling ? Math.max(0, peakY - next.y()) : 0;
-        if (next.ground()) { falling = false; peakY = next.y(); }
+        double landing = nextGround && falling ? Math.max(0, peakY - next.y()) : 0;
+        if (nextGround) { falling = false; peakY = next.y(); }
         if (dy < -.001) { descentDy = dy; descentAge = 0; }
         else if (dy > .001) descentAge = 100;
-        lastDy = dy; last = next;
+        lastDy = dy; last = next;lastGround=nextGround;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
-        return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0);
+        return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0||sweptGround);
     }
 
     private static int jumpSteps(double height, double jump, double gravity,int arrivalTicks) {

@@ -32,6 +32,8 @@ public final class GuardProbe extends JavaPlugin implements Listener {
     @EventHandler public void damage(EntityDamageEvent event) {
         if (event.getEntity() instanceof Player && event.getCause() == EntityDamageEvent.DamageCause.FALL) {
             falls++; if (cancel) event.setCancelled(true);
+            if(event.getEntity().getName().equals("GuardFixture"))getLogger().info("GUARD_NATIVE_FALL damage="+event.getDamage()
+                    +" y="+event.getEntity().getY()+" cancelled="+event.isCancelled());
         }
     }
     @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
@@ -94,7 +96,8 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                                     +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]
                                     +" flightScore="+((double[])scores.get(movement))[Check.FLIGHT.ordinal()]
                                     +" supportY="+support.getDouble(movement)+" jumpAge="+jumpAge.getInt(movement)
-                                    +" airTicks="+airTicks.getInt(movement));
+                                    +" airTicks="+airTicks.getInt(movement)+" nativeFall="+player.getFallDistance()
+                                    +" hurtTicks="+player.getNoDamageTicks()+" lastDamage="+player.getLastDamage());
                             if(++count[0]>=300)trace.cancel();
                         } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
                     },null,1,1);

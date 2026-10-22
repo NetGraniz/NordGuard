@@ -16,7 +16,7 @@ class DescendingContactTest {
         model.accept(frame(.4,70.162141421027,false),policy,support);
         // A native collision can land on the ledge while horizontal motion
         // has already moved the final feet box beyond that ledge.
-        model.accept(frame(.6,70,false),policy,68);
+        model.accept(frame(.6,70.01,false),policy,68);
         return model;
     }
 
@@ -42,5 +42,19 @@ class DescendingContactTest {
 
     @Test void invalidTakeoffCannotUseRecentLedge() {
         assertFalse(approach(70).accept(frame(.9,70.1,false),MovementModelTest.policy(),68).inferredLanding());
+    }
+
+    @Test void passiveSweptContactSplitsFallsWithoutErasingDamage() {
+        var model=approach(70);var policy=MovementModelTest.policy();
+        var contact=model.accept(frame(.7,70,false),policy,68);
+        assertTrue(contact.inferredLanding());assertEquals(10,contact.landingDistance(),1E-8);
+        model.accept(frame(.8,69.92,false),policy,68);
+        var finalContact=model.accept(frame(.9,68,true),policy,68);
+        assertEquals(2,finalContact.landingDistance(),1E-8);
+    }
+
+    @Test void passiveContactRequiresExactKnownFloor() {
+        assertFalse(approach(Double.NaN).accept(frame(.7,70,false),MovementModelTest.policy(),68).inferredLanding());
+        assertFalse(approach(70).accept(frame(.7,69.95,false),MovementModelTest.policy(),68).inferredLanding());
     }
 }
