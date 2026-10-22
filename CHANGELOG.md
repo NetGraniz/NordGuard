@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.5 — descending ledge contacts
+
+- Keep up to six recently observed server support heights when horizontal motion leaves a ledge before the owner snapshot. Expire candidates in trusted owner time, including silent transport intervals; require nearby descending contact and a matching native takeoff height before restarting Flight's jump history.
+- Preserve the previous fall's distance when inferring a landing. Unknown, expired or wrong-height floors do not grant a new takeoff.
+- Retain existing configuration values, permissions and thresholds. No new world query, scheduler, network call or per-sample history allocation is added.
+- Add regression tests for swept ledge contacts, expired/unknown/wrong-height support and invalid takeoff heights. The verified 0.5.4 diagonal regression failures remain recorded in TESTING.md.
+
 ## 0.5.3 — combat, vehicles and mining work budgets
 
 - Separate WallHit's confirmation span from its inter-attack retention. Add bounded owner rescans inside the existing per-player and shared spatial budgets; preserve an owner-only path when packet observation is disabled.

@@ -25,6 +25,12 @@ final class MovementModel {
     private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
     private double slowDebt, slowCredit, slowLimit;
     private double lastSupportY=Double.NaN;
+    // Retain only recently observed server geometry. A native landing can
+    // occur on a swept ledge before the final feet box moves over a lower floor.
+    private final double[] supportHistory=new double[6];
+    private final long[] supportTicks=new long[6];
+    private int supportCount,supportCursor;
+    private long ownerTick;
     private final FlightEnvelope flight = new FlightEnvelope();
     private boolean falling;
     private final double[] scores = new double[Check.values().length];
@@ -34,11 +40,13 @@ final class MovementModel {
         lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
         slowDebt=slowCredit=slowLimit=0;flight.reset();
         lastSupportY=Double.NaN;
+        supportCount=supportCursor=0;ownerTick=0;
         java.util.Arrays.fill(scores, 0);
     }
 
     /** Account for elapsed owner time without repeating world queries. Credit is burst-bounded. */
     void stationaryTick() {
+        ownerTick++;
         if (last == null || !last.ground() || last.exempt() || last.medium()) return;
         jumpAge = Math.min(100, jumpAge + 1);
         jumpMomentum *= .91;
@@ -50,6 +58,7 @@ final class MovementModel {
 
     /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
     void transportIdleTick() {
+        ownerTick++;
         if (last == null || last.exempt() || last.medium()) return;
         idleTicks=Math.min(5,idleTicks+1);
         // This is a trusted owner tick, not a client tick claim. Keep the
@@ -92,14 +101,16 @@ final class MovementModel {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
             reset(); last = next; peakY = next.y();lastSupportY=supportY;
+            rememberSupport(supportY);
             idleSpeedLimit = next.speed() * policy.burstTicks();
             // One position after a reset proves no displacement, so it cannot replace a return anchor.
             return new Result(flags, 0, false);
         }
         double dx = next.x() - last.x(), dy = next.y() - last.y(), dz = next.z() - last.z();
+        ownerTick++;rememberSupport(supportY);
         double horizontal = Math.hypot(dx, dz);
         int arrivalTicks=Math.min(policy.movement().coalescedTicks(),Math.max(3,idleTicks+1));idleTicks=0;
-        double previousSupportY=lastSupportY;lastSupportY=supportY;
+        lastSupportY=supportY;
         if (!Double.isFinite(horizontal) || !Double.isFinite(dy)) {
             reset(); last = next;
             return new Result(flags, 0, false);
@@ -137,6 +148,7 @@ final class MovementModel {
             score(Check.HIGHJUMP, false, policy, flags);
             speedDebt = jumpMomentum = idleSpeedCredit = 0; airTicks = 0; falling = false;
             slowDebt=slowCredit=slowLimit=0;flight.reset();lastSupportY=Double.NaN;
+            supportCount=supportCursor=0;
             boolean supportedIdle = next.ground() && last.ground() && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
             peakY = next.y(); lastDy = dy; last = next;
@@ -148,23 +160,28 @@ final class MovementModel {
         int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity(),arrivalTicks) : 0;
         // A batched landing/takeoff may have no grounded owner snapshot at all.
         // Require server collision support and descent near that floor, not the client ground bit.
-        // The bounded two-block floor scan covers ordinary jump height. Keep
-        // only the immediately previous observed floor if a slope moves it out
-        // of range; never manufacture air as support.
-        double takeoffSupport=Double.isFinite(supportY)?supportY:previousSupportY;
+        // The two-block floor scan may already see the next, lower step.
+        // A tiny owner-time-bounded history preserves the swept ledge, without
+        // another world scan, trusting client ground flags or granting wall grace.
+        double takeoffSupport=Double.NaN;
         double projectedY=last.y(),projectedVelocity=descentDy;
         for(int step=0;step<arrivalTicks;step++) {
             projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
         }
-        boolean missedLanding = !last.ground() && !next.ground() && Double.isFinite(takeoffSupport)
+        boolean landingPossible = !last.ground() && !next.ground()
                 && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0
                 // Landing and the first jump step can share a snapshot whose
                 // net displacement is still down. Require a real upward change
                 // from descent, plus the checked floor and matching jump height.
-                && (dy > 0 || dy < -.001 && dy > (lastDy-next.gravity()*arrivalTicks*.5)*.98+policy.verticalMargin())
-                && last.y() >= takeoffSupport && last.y() - takeoffSupport <= Math.max(1,last.y()-projectedY+.01)
-                && projectedY <= takeoffSupport + .01;
-        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - takeoffSupport, next.jump(), next.gravity(),arrivalTicks);
+                && (dy > 0 || dy < -.001 && dy > (lastDy-next.gravity()*arrivalTicks*.5)*.98+policy.verticalMargin());
+        boolean missedLanding=false;
+        if(jumpSteps==0&&landingPossible)for(int i=0;i<supportCount;i++) {
+            double candidate=supportHistory[i];
+            if(ownerTick-supportTicks[i]>arrivalTicks || last.y()<candidate
+                    || last.y()-candidate>Math.max(1,last.y()-projectedY+.01) || projectedY>candidate+.01)continue;
+            int steps=jumpSteps(next.y()-candidate,next.jump(),next.gravity(),arrivalTicks);
+            if(steps!=0) {jumpSteps=steps;takeoffSupport=candidate;missedLanding=true;break;}
+        }
         double inferredDistance=0;
         if (jumpSteps != 0) {
             // A verified intervening landing closes the previous fall. Account for
@@ -230,6 +247,14 @@ final class MovementModel {
             velocity = (velocity - gravity) * .98;
         }
         return 0;
+    }
+
+    private void rememberSupport(double height) {
+        if(!Double.isFinite(height))return;
+        for(int i=0;i<supportCount;i++)if(supportHistory[i]==height) {supportTicks[i]=ownerTick;return;}
+        supportHistory[supportCursor]=height;supportTicks[supportCursor]=ownerTick;
+        supportCursor=(supportCursor+1)%supportHistory.length;
+        supportCount=Math.min(supportHistory.length,supportCount+1);
     }
 
     private void score(Check check, boolean suspicious, Policy policy, EnumSet<Check> flags) {

@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.4 extends grouped-jump handling on descending terrain, adds local WaterWalk recovery without a land anchor and checks unsupported powder-snow surfaces. Attack-scoped Packet Criticals, WallHit, dry-air boat and repeated-mining checks remain available. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.5 addresses missed ledge landings during descending sprint-jumps by retaining up to six recent server-observed support heights. Local WaterWalk recovery without a land anchor and unsupported powder-snow checks remain available, along with attack-scoped Packet Criticals, WallHit, dry-air boat and repeated-mining checks. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
 
 Final archive evidence is in [TESTING.md](TESTING.md); retained development failures and unexercised controls are in [CANDIDATE.md](CANDIDATE.md).
 
