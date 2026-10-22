@@ -11,6 +11,7 @@ import java.util.Set;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.minecraft.client.Minecraft;
 
 /** Isolated test fixture, never a server dependency. Drives native input, not movement packets. */
@@ -34,6 +35,12 @@ public final class NativeClientProbe implements ClientModInitializer {
             var mc=Minecraft.getInstance();
             if(player==mc.player && combat() && target.getId()==targetId && mc.getCurrentServer()!=null
                     && "127.0.0.1:25660".equals(mc.getCurrentServer().ip))attackCalls++;
+            return net.minecraft.world.InteractionResult.PASS;
+        });
+        AttackBlockCallback.EVENT.register((player,world,hand,pos,direction)->{
+            var mc=Minecraft.getInstance();
+            if(player==mc.player&&mode.startsWith("mine")&&mc.getCurrentServer()!=null
+                    &&"127.0.0.1:25660".equals(mc.getCurrentServer().ip))miningCalls++;
             return net.minecraft.world.InteractionResult.PASS;
         });
     }
@@ -74,7 +81,13 @@ public final class NativeClientProbe implements ClientModInitializer {
                         Object hack=getHack("boatFlyHack");slider(hack,"Upward Speed",.3);enableHack("boatFlyHack");
                     }
                     if(mode.startsWith("mine")&&miningTargets.length==0)throw new IllegalArgumentException("Mining targets required");
-                    if(mode.equals("mine-fast"))enableHack("fastBreakHack");
+                    if(mode.equals("mine-fast")) {
+                        Object fast=getHack("fastBreakHack");slider(fast,"Activation chance",1);
+                        Object legit=setting(fast,"Legit mode");legit.getClass().getMethod("setChecked",boolean.class).invoke(legit,false);
+                        boolean checked=(boolean)legit.getClass().getMethod("isChecked").invoke(legit);
+                        if(checked)throw new IllegalStateException("FastBreak Legit mode remained enabled");
+                        settings.addProperty("Legit mode",checked);enableHack("fastBreakHack");
+                    }
                     if (Set.of("flight","speed","spider","water").contains(mode)) {
                         String name = switch(mode) { case "flight" -> "flightHack"; case "speed" -> "speedHackHack";
                             case "spider" -> "spiderHack"; default -> "jesusHack"; };
@@ -107,6 +120,7 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
             mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight") || mode.equals("crit-jump")||mode.equals("boatfly")));
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
+            mc.options.keyAttack.setDown(local&&mode.startsWith("mine")&&miningIndex<miningTargets.length);
             if (mc.player != null && local) {
                 travel += Math.hypot(mc.player.getX()-lastX,mc.player.getZ()-lastZ);
                 minY = Math.min(minY,mc.player.getY());
@@ -133,19 +147,15 @@ public final class NativeClientProbe implements ClientModInitializer {
                         lastAttackTick=ticks;
                     }
                 } else if(mode.startsWith("mine")) {
+                    while(miningIndex<miningTargets.length&&mc.level.getBlockState(miningTargets[miningIndex]).isAir())miningIndex++;
                     if(miningIndex<miningTargets.length) {
                         var target=miningTargets[miningIndex];
-                        if(mc.level.getBlockState(target).isAir())miningIndex++;
-                        else {
                             var center=net.minecraft.world.phys.Vec3.atCenterOf(target);
                             double dx=center.x-mc.player.getX(),dz=center.z-mc.player.getZ(),dy=center.y-mc.player.getEyeY();
                             if(dx*dx+dy*dy+dz*dz>25)throw new IllegalStateException("Mining target outside fixture reach");
                             mc.player.setYRot((float)Math.toDegrees(Math.atan2(dz,dx))-90);
                             mc.player.setXRot((float)-Math.toDegrees(Math.atan2(dy,Math.hypot(dx,dz))));
-                            mc.gameMode.continueDestroyBlock(target,net.minecraft.core.Direction.UP);miningCalls++;
-                            mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
-                        }
-                    }
+                    } else mc.options.keyAttack.setDown(false);
                 } else mc.player.setYRot(returning ? 90 : -90);
             }
             if (ticks % 2 == 0 || mode.equals("stop")) {
@@ -202,7 +212,7 @@ public final class NativeClientProbe implements ClientModInitializer {
     private void slider(Object hack,String name,double requested) throws ReflectiveOperationException {
         Object value=setting(hack,name);value.getClass().getMethod("setValue",double.class).invoke(value,requested);
         double actual=(double)value.getClass().getMethod("getValue").invoke(value);
-        if(Double.compare(actual,requested)!=0)throw new IllegalStateException("Wurst setting readback failed: "+name);
+        if(!Double.isFinite(actual)||Math.abs(actual-requested)>1E-9)throw new IllegalStateException("Wurst setting readback failed: "+name);
         settings.addProperty(name,actual);
     }
     private void disableHack() throws ReflectiveOperationException {

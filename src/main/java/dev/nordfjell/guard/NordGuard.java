@@ -112,7 +112,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         }
         try { packets=NativePackets.bind(); }
         catch (ReflectiveOperationException | LinkageError error) {
-            getLogger().log(java.util.logging.Level.WARNING, "Packet diagnostics unavailable; existing checks remain active", error);
+            getLogger().log(java.util.logging.Level.WARNING, "Packet observer unavailable; strict Criticals defers, event/tick checks remain active", error);
         }
         if(replicaEnabled) try { blockGeometry=NativeBlocks.bind(); }
         catch(ReflectiveOperationException error) {replicaEnabled=false;getLogger().log(java.util.logging.Level.WARNING,"Replica diagnostics unavailable; existing checks remain active",error);}

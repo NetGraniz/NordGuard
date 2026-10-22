@@ -17,6 +17,8 @@ final class BoatProbe {
     private Boat boat;
     private Cow passenger;
     private double startY,maxY,minY;
+    private double maxServerVy;
+    private int maxBubbleTime;
     private String terrain;
     private io.papermc.paper.threadedregions.scheduler.ScheduledTask sample;
     BoatProbe(JavaPlugin plugin) {this.plugin=plugin;}
@@ -27,6 +29,8 @@ final class BoatProbe {
                 requireOwned(player);
                 plugin.getLogger().info("GUARD_BOAT_RESULT {\"terrain\":\""+terrain+"\",\"startY\":"+startY
                     +",\"maxY\":"+maxY+",\"minY\":"+minY+",\"currentY\":"+boat.getY()
+                    +",\"maxServerVy\":"+maxServerVy+",\"maxBubbleTime\":"+maxBubbleTime
+                    +",\"surfaceBlock\":\""+boat.getWorld().getBlockAt(boat.getLocation().getBlockX(),79,boat.getLocation().getBlockZ()).getBlockData().getAsString()+"\""
                     +",\"boatId\":"+boat.getEntityId()+",\"sameBoat\":"+(player.getVehicle()==boat)
                     +",\"passengerCount\":"+boat.getPassengers().size()+",\"cowStillRiding\":"+(passenger.getVehicle()==boat)+"}");
                 return true;
@@ -59,7 +63,9 @@ final class BoatProbe {
         }
         if(next.equals("bubble"))for(int dx=-1;dx<=1;dx++)for(int dz=-1;dz<=1;dz++) {
             world.getBlockAt(x+dx,y-3,z+dz).setType(Material.SOUL_SAND,false);
-            for(int dy=-2;dy<0;dy++)world.getBlockAt(x+dx,y+dy,z+dz).setType(Material.BUBBLE_COLUMN,false);
+            var column=(org.bukkit.block.data.type.BubbleColumn)Bukkit.createBlockData(Material.BUBBLE_COLUMN);
+            column.setDrag(false);
+            for(int dy=-2;dy<0;dy++)world.getBlockAt(x+dx,y+dy,z+dz).setBlockData(column,false);
         }
         player.setGameMode(GameMode.SURVIVAL);player.setFlying(false);player.setAllowFlight(false);
         player.setInvulnerable(false);player.setVelocity(new org.bukkit.util.Vector());player.setFallDistance(0);
@@ -70,10 +76,16 @@ final class BoatProbe {
             boat=world.spawn(spawn,OakBoat.class);
             passenger=world.spawn(spawn,Cow.class,cow->{cow.setAI(false);cow.setPersistent(false);cow.setSilent(true);});
             if(!boat.addPassenger(player)||!boat.addPassenger(passenger))throw new IllegalStateException("Boat fixture mount failed");
-            startY=maxY=minY=boat.getY();
+            startY=maxY=minY=boat.getY();maxServerVy=0;maxBubbleTime=0;
             sample=player.getScheduler().runAtFixedRate(plugin,ignored->{
                 if(boat==null)return;
                 requireOwned(player);double height=boat.getY();maxY=Math.max(maxY,height);minY=Math.min(minY,height);
+                maxServerVy=Math.max(maxServerVy,boat.getVelocity().getY());
+                try {
+                    Object handle=boat.getClass().getMethod("getHandle").invoke(boat);
+                    var method=Class.forName("net.minecraft.world.entity.vehicle.boat.AbstractBoat").getDeclaredMethod("getBubbleTime");
+                    method.setAccessible(true);maxBubbleTime=Math.max(maxBubbleTime,(int)method.invoke(handle));
+                } catch(ReflectiveOperationException error) {throw new IllegalStateException("Native bubble fixture binding failed",error);}
             },()->{},1,1);
             plugin.getLogger().info("GUARD_BOAT_READY {\"terrain\":\""+next+"\",\"boatId\":"+boat.getEntityId()
                 +",\"startY\":"+startY+",\"passengerCount\":"+boat.getPassengers().size()+"}");

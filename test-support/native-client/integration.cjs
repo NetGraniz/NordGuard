@@ -19,7 +19,9 @@ const profile=process.env.NORD_NATIVE_PROFILE==='1';
 const downstepOnly=process.env.NORD_NATIVE_DOWNSTEP_ONLY==='1';
 const combatOnly=process.env.NORD_NATIVE_COMBAT_ONLY==='1';
 const boatsOnly=process.env.NORD_NATIVE_BOATS_ONLY==='1';
+const boatHostileOnly=process.env.NORD_NATIVE_BOAT_HOSTILE_ONLY==='1';
 const miningOnly=process.env.NORD_NATIVE_MINING_ONLY==='1';
+const regressionOnly=process.env.NORD_NATIVE_REGRESSION_ONLY==='1';
 const combatDelays=(process.env.NORD_NATIVE_COMBAT_DELAYS||'0,100,300').split(',').map(Number);
 assert(combatDelays.length>0&&combatDelays.every(delay=>[0,100,300].includes(delay)),'Invalid combat delays');
 const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
@@ -102,7 +104,7 @@ function combatJson(output,kind) {
   assert(match,'Missing combat JSON: '+kind);return JSON.parse(match[1]);
 }
 async function combatMatrix(original,config) {
-  await launchClient(true);
+  if(!client||clientExit)await launchClient(true);
   async function trial(delay,terrain,action,policyMode,controlMode='none',face=true,options={}) {
     await mode('idle');proxy.delay=delay;proxy.jitter=delay===300;
     let nextConfig=original.replace(/^(\s*)(reach|wallhit|criticals): OBSERVE$/gm,`$1$2: ${policyMode}`);
@@ -185,7 +187,7 @@ async function combatMatrix(original,config) {
   pass('combat matrix has no internal/ownership errors');
 }
 async function boatMatrix(original,config) {
-  await launchClient(true);
+  if(!client||clientExit)await launchClient(true);
   async function trial(terrain,action,policyMode,impulse=false) {
     await mode('idle');proxy.delay=0;proxy.jitter=false;
     fs.writeFileSync(config,original.replace(/^(\s*)boatflight: OBSERVE$/m,`$1boatflight: ${policyMode}`));
@@ -201,15 +203,21 @@ async function boatMatrix(original,config) {
     const data={kind:'boat',terrain,action,policyMode,impulse,ready,input,result,before,after};measurements.push(data);
     await marker('guardprobe boatclear GuardFixture',/GUARD_BOAT_CLEARED/);return data;
   }
-  for(const terrain of ['land','water','bubble']) {
+  for(const terrain of boatHostileOnly?[]:['land','water','bubble']) {
     const ordinary=await trial(terrain,'boat','CORRECT');
     assert(ordinary.after.BOATFLIGHT===ordinary.before.BOATFLIGHT&&ordinary.after.corrections===ordinary.before.corrections,'Ordinary boat was flagged or corrected: '+terrain);
-    if(terrain==='bubble')assert(ordinary.result.maxY>ordinary.result.startY+1,'Real bubble launch was not exercised');
+    if(terrain==='bubble'&&ordinary.result.maxY<=ordinary.result.startY+1) {
+      failures.push('Real bubble launch was not exercised');console.error('UNVERIFIED: real bubble launch was not exercised');continue;
+    }
     pass(`native two-passenger ${terrain} boat remains unflagged`);
   }
-  const impulse=await trial('land','boat','CORRECT',true);
-  assert(impulse.result.maxY>impulse.result.startY+1&&impulse.after.BOATFLIGHT===impulse.before.BOATFLIGHT,'Server-authorized boat impulse was flagged or unexercised');
-  pass('native server-authorized boat impulse remains unflagged');
+  if(!boatHostileOnly) {
+  const impulse=await trial('water','boat','CORRECT',true);
+  assert(impulse.after.BOATFLIGHT===impulse.before.BOATFLIGHT,'Server-authorized boat impulse was flagged');
+  if(impulse.result.maxY<=impulse.result.startY+1) {
+    failures.push('Server-authorized boat impulse did not produce ascent');console.error('UNVERIFIED: native boat impulse did not produce ascent');
+  } else pass('native server-authorized boat impulse remains unflagged');
+  }
   const positive=await trial('land','boatfly','OBSERVE');
   assert(positive.result.maxY>positive.result.startY+5,'Actual Wurst BoatFly positive control did not ascend');
   pass('actual Wurst BoatFly has server-observed ascent in OBSERVE');
@@ -217,9 +225,10 @@ async function boatMatrix(original,config) {
   assert(protectedBoat.after.BOATFLIGHT>protectedBoat.before.BOATFLIGHT&&protectedBoat.after.corrections>protectedBoat.before.corrections,'BoatFly was not corrected');
   assert(protectedBoat.result.maxY<positive.result.maxY-3,'BoatFly ascent was not bounded by actual vehicle correction');
   pass('actual Wurst BoatFly is corrected with the original two-passenger boat intact');
+  if(failures.length)throw Error(failures.join('; '));
 }
 async function miningMatrix(original,config) {
-  await launchClient(true);
+  if(!client||clientExit)await launchClient(true);
   for(const profile of ['dirt','stone','instant','creative'])for(const action of ['mine','mine-fast']) {
     await mode('idle');proxy.delay=0;proxy.jitter=false;
     fs.writeFileSync(config,original.replace(/^(\s*)(fastbreak|breakrate|blockreach): OBSERVE$/gm,'$1$2: CORRECT'));
@@ -234,7 +243,8 @@ async function miningMatrix(original,config) {
     await mode('idle');await sleep(1000);
     const result=combatJson((await marker('guardprobe miningresult GuardFixture',/GUARD_MINING_RESULT/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'RESULT');
     const after=await stats();measurements.push({kind:'mining',profile,action,ready,input,result,before,after});
-    assert(result.primaryAir===ready.targets.length&&result.acceptedBreaks===ready.targets.length,'Native mining did not produce the expected server blocks');
+    if(action==='mine')assert(result.primaryAir===ready.targets.length&&result.acceptedBreaks===ready.targets.length,'Ordinary native mining did not produce the expected server blocks');
+    assert(result.droppedItems<=result.acceptedBreaks,'Synthetic one-drop blocks produced more items than accepted breaks');
     assert(result.belowChanged===0,'Unrequested block below was changed');
     if(action==='mine')assert(result.cancelledBreaks===0&&after.FASTBREAK===before.FASTBREAK,'Legal mining was rejected or flagged');
     pass(`actual server mining measured: ${profile}, ${action}, ${result.acceptedBreaks} blocks, ${result.droppedItems} dropped items`);
@@ -260,6 +270,7 @@ async function main(){
   if(combatOnly){await combatMatrix(original,config);return;}
   if(boatsOnly){await boatMatrix(original,config);return;}
   if(miningOnly){await miningMatrix(original,config);return;}
+  if(regressionOnly){await combatMatrix(original,config);await boatMatrix(original,config);await miningMatrix(original,config);return;}
   await launchClient(false);
   await prepare();await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);
   pass('native server floor support is separate from actual ground contact');
@@ -368,6 +379,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,miningOnly,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,regressionOnly,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

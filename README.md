@@ -2,6 +2,8 @@
 
 Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. The 0.5.3 candidate adds attack-scoped Packet Criticals evidence, separates WallHit confirmation from retention between attacks, and introduces a separate dry-air boat model. It keeps the sprint-jump ledge fixes from 0.5.2. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
 
+Unreleased work and remaining checks are tracked in [CANDIDATE.md](CANDIDATE.md).
+
 The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases on each tested platform; Folia also passes 11 extended ordinary scenarios, including a two-minute patrol. Initial predictor seeds and accepted frames are now nonzero. These are narrow checks, not universal correction safety or 600-player capacity. Stage 4's broader validation remains open. Keep movement checks in OBSERVE. Earlier relay results are qualified in [TESTING.md](TESTING.md), alongside current evidence and remaining gates.
 
 ## Checks
@@ -93,6 +95,21 @@ Strict Criticals evidence requires `packets.enabled: true`. `attack-evidence-ms`
 
 Movement margins, evidence buffer, grace periods, sample gaps, action rates, scan budgets and alert cooldowns remain configurable in the same file. Queue capacities and physics constants are implementation safety limits, not tuning controls. Raising spatial or prediction budgets increases permitted work; it does not make the detector more accurate by itself.
 
+```yaml
+vehicle:
+  violation-buffer: 6
+  air-grace-ticks: 12
+  bubble-grace-ticks: 120
+  max-sample-gap-ms: 250
+  max-probe-blocks: 64
+  correction-cooldown-ticks: 10
+  anchor-max-age-seconds: 15
+  max-setback-distance: 32
+  rise-margin: 0.35
+```
+
+BoatFlight uses these limits independently of player movement. It observes support and bubble context during initial settling, but does not correct then. Bubble allowance lasts for bounded active observations; an arbitrary owner-side positive velocity defers the dry-air model until support returns. Leashed boats and unknown terrain also defer. A correction needs a fresh supported/water anchor and free space for the root boat and the riders above its base. Mounted feet can extend below that base; they are not treated as standing-player collisions with the floor. No passenger is ejected, recreated or remounted by the check.
+
 ### Action limit values
 
 ```yaml
@@ -111,7 +128,7 @@ Reach reads the native interaction attribute when the main-hand item has no ATTA
 
 Player snapshots publish at most ten times per second as one immutable pair. The pair holds the latest and preceding position, not a complete movement timeline. `history-ms` caps the permitted age of the preceding snapshot; values above 200 do not create additional history. The effective allowance also depends on reported ping. `0` disables preceding-snapshot allowance. Live targets owned by the current region use their current box; foreign-region players use fresh immutable snapshots. Missing, stale or different-world snapshots defer spatial checks. Teleports clear history; native teleport sequences also invalidate owned-target history between samples.
 
-WallHit and NoClip share a server-wide spatial cell budget, split into 50 ms windows. The default allows at most 1,000 requested cells per window, across all players and regions. Each scan also has its own cell limit; WallHit has a per-attacker scan limit. Budget exhaustion skips the scan. This deliberately sacrifices coverage under saturation instead of adding unbounded tick work. First-come allocation is not a fairness guarantee. Cheap distance and action-rate checks continue.
+WallHit, NoClip, strict Criticals support probes and boat probes share a server-wide spatial cell budget, split into 50 ms windows. The default allows at most 1,000 requested cells per window, across all players and regions. Each scan also has its own cell limit; combat scans have a per-attacker count limit. Budget exhaustion defers the scan. Coverage falls under saturation rather than adding unbounded tick work. First-come allocation is not a fairness guarantee. Cheap distance and action-rate checks continue.
 
 FastBreak tracks one active block per player. Repeated starts replace the timeline, matching the native game mode. The historical maximum break speed makes tool or effect changes permissive. Eligibility includes elapsed monotonic time because 26.2 mining uses lag compensation. A two-tick allowance and 0.05 progress margin accommodate event order; the native early-stop threshold is 0.7. Plugin-authorized instant breaks are allowed. A break without a known start is not proof of FastBreak and is not rejected by that check. Rate limits can still apply to instant or plugin-triggered actions.
 

@@ -30,6 +30,7 @@ final class BoatGuard implements Listener {
         int sequence,grace,cooldown;
         Location anchor;
         long anchorAt,serial,pending,pendingAt;
+        boolean awaitSupport;
         State(Boat boat,Policy policy,int sequence) {
             this.boat=boat.getUniqueId();world=boat.getWorld().getUID();this.policy=policy;this.sequence=sequence;
             grace=policy.joinGrace();
@@ -66,7 +67,10 @@ final class BoatGuard implements Listener {
         }
         if(state.sequence!=sequence) {state.sequence=sequence;state.anchor=null;state.model.reset();state.grace=policy.transitionGrace();}
         if(state.cooldown>0)state.cooldown--;
-        if(state.grace>0) {state.grace--;state.model.reset();return;}
+        // Keep observing support/bubble context during settling. A native bubble
+        // launch can occur at the end of the initial grace period.
+        boolean settling=state.grace>0;
+        if(settling)state.grace--;
         BoatLimits limits=policy.boats();
         Location at=boat.getLocation();
         Probe probe=probe(boat,at,limits);
@@ -75,9 +79,20 @@ final class BoatGuard implements Listener {
             if(probe.special)state.grace=limits.bubbleGraceTicks();
             return;
         }
+        // A positive owner-side velocity is not inferred from a client's vehicle
+        // displacement. The 26.2 vehicle handler moves position without setting it.
+        // Do not reconstruct an arbitrary server/plugin impulse as cheating.
+        if(boat.getVelocity().getY()>.12) {
+            state.awaitSupport=true;state.anchor=null;state.model.reset();return;
+        }
+        if(state.awaitSupport) {
+            if(!(probe.supported||probe.water))return;
+            state.awaitSupport=false;state.model.reset();
+        }
         var result=state.model.accept(new BoatModel.Frame(now,at.getX(),at.getY(),at.getZ(),probe.supported,
                 probe.water,probe.bubble,false,freshMovement,.04),limits);
         if(result.clean()&&probe.clear&&(probe.supported||probe.water)&&!probe.bubble) {state.anchor=at.clone();state.anchorAt=now;}
+        if(settling)return;
         if(result.violation()&&host.actionViolation(player,Check.BOATFLIGHT,"controlled boat remains above a conservative dry-air fall envelope")
                 &&state.cooldown==0&&state.anchor!=null&&probe.clear
                 &&now>=state.anchorAt&&now-state.anchorAt<limits.anchorMaxAgeSeconds()*1_000_000_000L
@@ -97,7 +112,8 @@ final class BoatGuard implements Listener {
         Location actual=boat.getLocation();
         for(Entity passenger:passengers) {
             BoundingBox shifted=passenger.getBoundingBox().clone().shift(target.getX()-actual.getX(),target.getY()-actual.getY(),target.getZ()-actual.getZ());
-            if(!clear(passenger.getWorld(),shifted,limits))return;
+            BoundingBox occupied=seatedBody(shifted,target.getY());
+            if(occupied==null||!clear(passenger.getWorld(),occupied,limits))return;
         }
         UUID[] ids=passengers.stream().map(Entity::getUniqueId).toArray(UUID[]::new);
         long ticket=++state.serial;state.pending=ticket;state.pendingAt=now;state.cooldown=limits.correctionCooldownTicks();
@@ -119,6 +135,14 @@ final class BoatGuard implements Listener {
                     host.actionCancelled();
                 },()->{}));
         } catch(RuntimeException failure) {state.pending=0;state.anchor=null;state.model.reset();state.grace=host.policy().transitionGrace();}
+    }
+    static BoundingBox seatedBody(BoundingBox body,double boatY) {
+        // Mounted player feet are about .4125 blocks below the boat base in
+        // the tested 26.2 runtime. Root-boat clearance protects that base;
+        // keep the rider's whole above-base body, including head/side clearance.
+        double minY=Math.max(body.getMinY(),boatY+.01);
+        if(!Double.isFinite(minY)||body.getMaxY()<=minY)return null;
+        return body.clone().resize(body.getMinX(),minY,body.getMinZ(),body.getMaxX(),body.getMaxY(),body.getMaxZ());
     }
     private Probe probe(Boat boat,Location at,BoatLimits limits) {
         Location actual=boat.getLocation();
