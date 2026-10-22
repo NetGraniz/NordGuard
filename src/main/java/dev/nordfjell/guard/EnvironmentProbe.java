@@ -17,7 +17,11 @@ public final class EnvironmentProbe {
                 || material==Material.SOUL_SAND || material==Material.BUBBLE_COLUMN;
     }).collect(java.util.stream.Collectors.toUnmodifiableSet());
     public record Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
-                              boolean liquid, boolean liquidSurface, boolean web, double supportY) {
+                              boolean liquid, boolean liquidSurface, boolean web, double supportY, boolean powderSurface) {
+        Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
+                    boolean liquid, boolean liquidSurface, boolean web, double supportY) {
+            this(known,ground,wall,special,clear,liquid,liquidSurface,web,supportY,false);
+        }
         Environment(boolean known, boolean ground, boolean wall, boolean special, boolean clear,
                     boolean liquid, boolean liquidSurface, boolean web) {
             this(known, ground, wall, special, clear, liquid, liquidSurface, web, Double.NaN);
@@ -33,24 +37,27 @@ public final class EnvironmentProbe {
                 at.getY() - actual.getY(), at.getZ() - actual.getZ());
         // Normal player box only. A scaled entity needs a separate model.
         if (body.getWidthX() > 0.8 || body.getHeight() > 2) return new Environment(false, false, false, true, false);
-        var feet = new BoundingBox(body.getMinX() + .02, at.getY() - .06, body.getMinZ() + .02,
-                body.getMaxX() - .02, at.getY() + .01, body.getMaxZ() - .02);
+        // Keep native-scale edge contact: a 0.02 inset loses legitimate ledge support.
+        var feet = new BoundingBox(body.getMinX() + 1E-7, at.getY() - .06, body.getMinZ() + 1E-7,
+                body.getMaxX() - 1E-7, at.getY() + .01, body.getMaxZ() - 1E-7);
         var walls = body.clone().expand(.04, 0, .04);
         var inside = body.clone().expand(-.03);
         boolean ground = false, wall = false, special = false, clear = true;
-        boolean liquid = false, liquidSurface = false, web = false;
+        boolean liquid = false, liquidSurface = false, web = false, powderSurface=false;
         double supportY = Double.NaN;
         int count = 0;
         for (int x = floor(body.getMinX() - .05); x <= floor(body.getMaxX() + .05); x++)
             for (int z = floor(body.getMinZ() - .05); z <= floor(body.getMaxZ() + .05); z++) {
                 if (!Bukkit.isOwnedByCurrentRegion(world, x >> 4, z >> 4) || !world.isChunkLoaded(x >> 4, z >> 4))
                     return new Environment(false, false, false, true, false);
-                for (int y = floor(at.getY()) - 1; y <= floor(body.getMaxY()); y++) {
+                for (int y = floor(at.getY()) - 2; y <= floor(body.getMaxY()); y++) {
                     if (++count > 36 || y < world.getMinHeight() || y >= world.getMaxHeight())
                         return new Environment(false, false, false, true, false);
                     var block = world.getBlockAt(x, y, z);
                     Material material = block.getType();
                     if (material.isAir()) continue;
+                    powderSurface |= material==Material.POWDER_SNOW && Math.abs(at.getY()-(y+1))<=.12
+                            && body.getMaxX()>x && body.getMinX()<x+1 && body.getMaxZ()>z && body.getMinZ()<z+1;
                     if (material == Material.COBWEB)
                         web |= inside.overlaps(new BoundingBox(x, y, z, x + 1, y + 1, z + 1));
                     if (block.isLiquid()) {
@@ -67,7 +74,7 @@ public final class EnvironmentProbe {
                         var shape = local.clone().shift(x, y, z);
                         ground |= feet.overlaps(shape);
                         // Reuse the bounded scan: a floor below the feet is not current ground contact.
-                        if (shape.getMaxY() <= at.getY() + .01 && shape.getMaxY() >= at.getY() - 1
+                        if (shape.getMaxY() <= at.getY() + .01 && shape.getMaxY() >= at.getY() - 2
                                 && feet.getMaxX() > shape.getMinX() && feet.getMinX() < shape.getMaxX()
                                 && feet.getMaxZ() > shape.getMinZ() && feet.getMinZ() < shape.getMaxZ()
                                 && (Double.isNaN(supportY) || shape.getMaxY() > supportY)) supportY = shape.getMaxY();
@@ -77,7 +84,7 @@ public final class EnvironmentProbe {
                     }
                 }
             }
-        return new Environment(true, ground, wall, special, clear, liquid, liquidSurface && !ground, web, supportY);
+        return new Environment(true, ground, wall, special, clear, liquid, liquidSurface && !ground, web, supportY,powderSurface);
     }
     private static int floor(double value) { return (int) Math.floor(value); }
 }

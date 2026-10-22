@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.3 adds attack-scoped Packet Criticals evidence, separates WallHit confirmation from retention between attacks, and introduces a dry-air boat model and repeated-mining work budget. It keeps the sprint-jump ledge fixes from 0.5.2. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.4 extends grouped-jump handling on descending terrain, adds local WaterWalk recovery without a land anchor and checks unsupported powder-snow surfaces. Attack-scoped Packet Criticals, WallHit, dry-air boat and repeated-mining checks remain available. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
 
 Final archive evidence is in [TESTING.md](TESTING.md); retained development failures and unexercised controls are in [CANDIDATE.md](CANDIDATE.md).
 
@@ -15,6 +15,7 @@ The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases o
 | Speed | Sustained horizontal displacement above an attribute-adjusted allowance, with a bounded burst budget. |
 | HighJump / Step | Repeated excessive upward displacement or grounded step height. |
 | WaterWalk | Sustained unsupported position at a source water/lava surface, including small vertical oscillations. |
+| PowderSnow | Sustained unsupported position on powder snow without leather boots. Ordinary sinking and short crossings do not complete the evidence window. |
 | Climb | Repeated ascent faster than 0.24 blocks per sampled tick while the server reports climbing. |
 | NoWeb | Excess movement while the player's body intersects a cobweb; Weaving and plugin-cancelled cobweb interactions defer checks. |
 | NoSlow | Sustained excessive grounded speed during server-observed item use; reads the item's USE_EFFECTS speed multiplier. |
@@ -48,6 +49,7 @@ checks:
   speed: OBSERVE
   highjump: OBSERVE
   waterwalk: OBSERVE
+  powdersnow: OBSERVE
   climb: OBSERVE
   noweb: OBSERVE
   noslow: OBSERVE
@@ -149,11 +151,26 @@ Rate budgets refill with monotonic elapsed time, not packet count or server TPS.
 
 `movement.violation-buffer` controls accumulated movement evidence. Spider uses at most three evidence samples; WaterWalk uses at least ten to allow brief surface crossings. `horizontal-margin` is added once to the speed burst budget, not to every tick's speed allowance. `vertical-margin` remains a vertical tolerance; Spider scales it when comparing gravity deceleration. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are starting points, not calibrated guarantees.
 
+```yaml
+movement:
+  max-coalesced-ticks: 6
+  stationary-air-sample-ticks: 3
+  spider-launch-grace-ticks: 6
+  powder-snow-samples: 12
+  surface-sink-depth: 0.5
+```
+
+Coalesced takeoff inference uses at most six elapsed owner ticks, a server-observed nearby floor and a matching native jump height. Client packets cannot increase that allowance. Spider's short launch grace applies only after a supported or verified missed-landing jump; a nearby wall alone grants no exemption. It does not reset the Flight envelope or forgive Speed debt.
+
+The existing bounded terrain scan includes floors up to two blocks below the feet, covering an ordinary jump apex. Foot contact keeps narrow native-scale ledge support instead of shrinking the footprint by 0.02 blocks. Identical received airborne positions get one full sample every three owner ticks by default (configurable from 1 to 3); silent transport still adds no hover evidence. Confirmed intervening landings close the previous fall and start separate NoFall accounting before the next jump.
+
+PowderSnow requires consecutive known surface observations within a 0.1-block height window, without geometric solid support or leather boots. Native high-fall collision, ordinary sinking, Creative, authorized flight and `nordguard.bypass` remain exempt. Existing configurations without `checks.powdersnow` inherit WaterWalk's mode; an explicit mode wins. New installations observe only. This does not model every movement cheat inside snow.
+
 Unchanged owner ticks repay speed debt first, then retain unused allowance up to `burst-ticks` times the current speed allowance. Later batches consume that reserve once; standing still longer cannot enlarge it. Client packet counts do not create movement allowance.
 
 Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
 
-Existing schema-version 1 configurations remain readable. Missing action limits use the defaults above. Missing Criticals/BoatFlight modes inherit the related older mode as described above; other missing modes use OBSERVE. Existing explicit values are preserved. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
+Existing schema-version 1 configurations remain readable. Missing action limits use the defaults above. Missing Criticals/BoatFlight/PowderSnow modes inherit the related older mode as described above; other missing modes use OBSERVE. Existing explicit values are preserved. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
 
 NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Owner ticks repay a separate bounded slowdown debt/reserve; ending use clears spare credit but does not forgive unpaid excess. Synthetic use/release regressions are covered, not every native item-use packet ordering. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
 
@@ -166,6 +183,8 @@ Reload validates a complete policy before publication. Invalid reloads retain th
 Temporary history resets keep the last clean supported return position. The first sample after a reset cannot replace it: the model needs displacement evidence before accepting a new clean position. External teleports, respawns, world changes and game-mode changes discard it. A successful NordGuard setback keeps its validated destination and uses a two-tick settling period instead of the ordinary transition grace. Immediate repeated movement violations can therefore trigger another setback without waiting for a new ground sample. Evidence buffers still apply; corrections are not instantaneous packet rejection.
 
 Return anchors expire after 30 seconds and must be within 64 blocks, in the same world and inside its border. The loaded, region-owned destination must have solid support and clear body space, without special blocks or immersion. A ladder or web alone is not support; a clean stationary position beside a ladder or inside a web can remain an anchor when solid ground supports it. Completion rechecks geometry, player eligibility, world, distance and the native teleport sequence before retaining the anchor or counting a correction. Movement arriving before the completion callback does not require exact position equality. These checks cannot undo a teleport that the server has already completed; changed or uncertain destinations discard the anchor and reset history.
+
+If WaterWalk has no usable land anchor, CORRECT can move the player down by `surface-sink-depth` into the water immediately below. PowderSnow uses the same local recovery into snow. All five feet points must enter the matching medium, with known loaded/owned geometry, clear body space and no solid support at the destination. There is no shore search, chunk loading, lava fallback or dry-anchor creation from immersion. Uncertain or obstructed destinations still defer. The existing teleport ticket, completion validation and transition resets apply to both paths. OBSERVE never initiates recovery.
 
 Each pending return has its own operation ticket. External transitions invalidate it, so a late completion cannot replace newer state. Five seconds of monotonic elapsed time expire the bookkeeping at the next available owner tick or completion. This is not a background watchdog and does not cancel the server's teleport future. Folia can pause an entity's ticking during an asynchronous transfer; see [Folia's teleport lifecycle](https://docs.papermc.io/folia/reference/overview/). No extra scheduler or repeating timer is created.
 
@@ -257,7 +276,7 @@ Output is throttled per player and check. Violation counters count samples, not 
 
 - Tick-sampled protection is not full packet-order validation or a complete physics simulator. Actions between samples can be missed.
 - Creative, Spectator, authorized flight, vehicles, gliding, riptide, levitation and slow falling remain outside the model. Elytra-speed and vehicle cheats are not covered.
-- Swimming/submerged movement, flowing liquids, waterlogged blocks, ice, slime, honey, beds, hay, powder snow, berry bushes, scaffolding, soul sand and nearby pistons conservatively defer checks. These exemptions leave gaps. Source liquid surfaces, climbing and cobwebs now have separate checks instead of a blanket exemption.
+- Swimming/submerged movement, flowing liquids, waterlogged blocks, ice, slime, honey, beds, hay, powder-snow interiors, berry bushes, scaffolding, soul sand and nearby pistons conservatively defer ordinary movement checks. These exemptions leave gaps. Source liquid surfaces, unsupported powder-snow surfaces, climbing and cobwebs have separate checks.
 - NoFall covers observed falls on ordinary supported terrain. Mid-tick rescue mechanics, damage cooldowns, plugin modifications and incomplete event history affect evidence. Correction remains experimental.
 - HighJump/Step targets repeated violations, not every isolated jump. Fine speed advantages, collision phasing and arbitrary client timing are not fully covered.
 - Combat checks cover excessive range, sampled obstruction and action budgets, not every Kill Aura mode, aim pattern or critical-hit exploit. Legal-looking automation can pass.

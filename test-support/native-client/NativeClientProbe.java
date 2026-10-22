@@ -75,7 +75,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                     returning = false; originX = mc.player == null ? 0 : mc.player.getX();
                     travel = 0; lastX = originX; lastZ = mc.player == null ? 0 : mc.player.getZ();
                     minY = mc.player == null ? 0 : mc.player.getY();
-                    if (!Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","stop",
+                    if (!Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","snow","stop",
                             "attack","attack-away","critical","killaura","aura-critical","crit-jump","boat","boatfly","mine","mine-fast").contains(mode))
                         throw new IllegalArgumentException("Unknown fixture mode");
                     if (combat() && targetId < 0) throw new IllegalArgumentException("Combat requires targetId");
@@ -90,9 +90,9 @@ public final class NativeClientProbe implements ClientModInitializer {
                         if(checked)throw new IllegalStateException("FastBreak Legit mode remained enabled");
                         settings.addProperty("Legit mode",checked);enableHack("fastBreakHack");
                     }
-                    if (Set.of("flight","speed","spider","water").contains(mode)) {
+                    if (Set.of("flight","speed","spider","water","snow").contains(mode)) {
                         String name = switch(mode) { case "flight" -> "flightHack"; case "speed" -> "speedHackHack";
-                            case "spider" -> "spiderHack"; default -> "jesusHack"; };
+                            case "spider" -> "spiderHack"; case "snow" -> "snowShoeHack"; default -> "jesusHack"; };
                         enableHack(name);
                     }
                     if (mode.equals("critical") || mode.equals("aura-critical")) {
@@ -117,7 +117,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                     }
                 }
             }
-            boolean forward = local && Set.of("walk","sprint","jump","sneak","speed","spider","water").contains(mode);
+            boolean forward = local && Set.of("walk","sprint","jump","sneak","speed","spider","water","snow").contains(mode);
             mc.options.keyUp.setDown(forward);
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
             mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight") || mode.equals("crit-jump")||mode.equals("boatfly")));

@@ -38,6 +38,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private final LongAdder corrections = new LongAdder();
     private final LongAdder[] violations = Arrays.stream(Check.values()).map(c -> new LongAdder()).toArray(LongAdder[]::new);
     private volatile Policy policy;
+    private byte[] bundledDefaults;
     private NativeFall nativeFall;
     private NativeTeleport nativeTeleport;
     private NativePackets packets;
@@ -85,8 +86,13 @@ public final class NordGuard extends JavaPlugin implements Listener {
     @Override public void onEnable() {
         shuttingDown=false;
         saveDefaultConfig();
-        try(var defaults=getResource("config.yml")) {
-            var migration=ConfigMigration.merge(getDataFolder().toPath().resolve("config.yml"),defaults);
+        try {
+            if(bundledDefaults==null)try(var defaults=getResource("config.yml")){
+                if(defaults==null)throw new java.io.IOException("Bundled configuration unavailable");
+                bundledDefaults=defaults.readAllBytes();
+            }
+            var migration=ConfigMigration.merge(getDataFolder().toPath().resolve("config.yml"),
+                    new java.io.ByteArrayInputStream(bundledDefaults));
             if(migration.changed())getLogger().info("Added "+migration.addedKeys()
                     +" missing configuration keys; previous file: "+migration.backup().getFileName());
         } catch(Exception error) {
@@ -329,6 +335,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private final class Session {
         final Player player;
         final MovementModel model = new MovementModel();
+        final SurfaceEvidence snow = new SurfaceEvidence();
         final long[] lastAlert = new long[Check.values().length];
         volatile ScheduledTask task;
         volatile NativePackets.Handle packetHandle;
@@ -346,7 +353,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         long originRevision;
         long safeCreatedNanos;
         final SetbackWindow setbacks = new SetbackWindow();
-        int grace, idle;
+        int grace, idle, airIdle;
         int teleportSequence;
         boolean seenTeleportSequence;
         long lastNanos, fallEvents, fallBaseline, pendingBaseline, fallOverrides, overrideBaseline, pendingOverrides;
@@ -440,10 +447,13 @@ public final class NordGuard extends JavaPlugin implements Listener {
             }
         }
         void suspend(int ticks) {
+            suspend(ticks,false);
+        }
+        void suspend(int ticks,boolean preserveSnow) {
             if(prediction!=null)prediction.reset("owner_transition");
             // A temporary evidence reset must not discard the last supported return position.
-            model.reset(); last = null; grace = Math.max(grace, ticks);
-            pendingFall = 0; pendingTicks = 0; airborne = false;
+            model.reset(); if(!preserveSnow)snow.reset(); last = null; grace = Math.max(grace, ticks);
+            pendingFall = 0; pendingTicks = 0; airborne = false;airIdle=0;
             impulseSpeed = impulseY = 0;
         }
         void tick() {
@@ -500,17 +510,37 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 model.transportIdleTick();
                 return;
             }
+            // Netty receipt precedes owner-side application. Repeated identical
+            // airborne snapshots are not three independent physics advances.
+            // Sustained received hover is still sampled on a bounded cadence.
+            if(stationary&&airborne&&pendingFall==0&&++airIdle<current.movement().stationaryAirTicks()){model.transportIdleTick();return;}
+            airIdle=0;
             if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) {
                 model.stationaryTick();
                 return;
             }
             var environment = EnvironmentProbe.inspect(player, at);
+            boolean snowViolation=snow.accept(receivedMovement&&environment.known()&&environment.powderSurface()
+                    &&!environment.ground()&&!SurfaceRecovery.leatherBoots(player)&&player.getFallDistance()<=2.5
+                    &&current.modes().get(Check.POWDERSNOW)!=Policy.Mode.OFF,at.getY(),now,
+                    current.movement().snowSamples(),current.maxGapNanos());
+            if(snowViolation){
+                report(this,Check.POWDERSNOW,"sustained unsupported powder-snow surface without leather boots");
+                if(current.modes().get(Check.POWDERSNOW)==Policy.Mode.CORRECT){
+                    Location target=at.clone().subtract(0,current.movement().sinkDepth(),0);
+                    if(SurfaceRecovery.valid(player,target,org.bukkit.Material.POWDER_SNOW))
+                        correctTo(target,null,org.bukkit.Material.POWDER_SNOW);
+                }
+            }
+            if(teleporting)return;
             // Use feet geometry, not a claimed swimming pose, to classify a liquid surface.
             boolean surface = environment.liquidSurface();
             if (!environment.known() || environment.special()
                     || (environment.liquid() || player.isInWater()) && !surface
                     || environment.web() && player.hasPotionEffect(PotionEffectType.WEAVING)) {
-                suspend(3); skipped.increment(); return;
+                // Powder snow has its own evidence window; ordinary movement stays deferred.
+                boolean powder=environment.known()&&environment.powderSurface();
+                suspend(powder?0:3,powder); skipped.increment(); return;
             }
             boolean climbing = player.isClimbing();
             if (surface || climbing || environment.web()) { pendingFall = 0; airborne = false; }
@@ -572,6 +602,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 pendingFall = result.landingDistance(); pendingTicks = 2; pendingBaseline = fallBaseline;
                 pendingRawBaseline = rawBaseline; pendingOverrides = overrideBaseline;
             }
+            if(result.inferredLanding()){
+                fallBaseline=fallEvents;rawBaseline=fallRawDamage;overrideBaseline=fallOverrides;
+            }
             boolean correct = false;
             for (Check check : result.flags()) {
                 report(this, check, "movement outside conservative envelope");
@@ -584,6 +617,22 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 if (targetEnvironment.known() && targetEnvironment.ground() && targetEnvironment.clear() && !targetEnvironment.special()
                         && !targetEnvironment.liquid()) {
                     Location target = safe.clone(); target.setYaw(at.getYaw()); target.setPitch(at.getPitch());
+                    correctTo(target,movementFrame,null);
+                    return;
+                }
+            }
+            if(current.modes().get(Check.WATERWALK)==Policy.Mode.CORRECT && result.flags().contains(Check.WATERWALK)){
+                Location target=at.clone().subtract(0,current.movement().sinkDepth(),0);
+                if(SurfaceRecovery.valid(player,target,org.bukkit.Material.WATER)){
+                    correctTo(target,movementFrame,org.bukkit.Material.WATER);return;
+                }
+            }
+            if (environment.ground() && environment.clear() && result.clean() && !phased
+                    && !environment.liquid()) { safe = at.clone(); safeCreatedNanos = now; }
+            last = at;
+        }
+        void correctTo(Location target,MovementModel.Frame movementFrame,org.bukkit.Material medium){
+                    long now=System.nanoTime();
                     long revision = originRevision;
                     long ticket = setbacks.begin(now, revision);
                     int expectedSequence = NativeTeleport.next(nativeTeleport.sequence(player));
@@ -611,6 +660,11 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                             || player.isGliding() || player.isRiptiding() || !player.hasGravity()
                                             || player.hasPermission("nordguard.bypass")
                                             || !target.getWorld().getWorldBorder().isInside(target)) { grace(player); return; }
+                                    if(medium!=null){
+                                        if(!SurfaceRecovery.valid(player,target,medium)){grace(player);return;}
+                                        // Immersion is not a dry return anchor and cannot mint one.
+                                        pendingFall=0;corrections.increment();return;
+                                    }
                                     var landedEnvironment = EnvironmentProbe.inspect(player, target);
                                     if (!landedEnvironment.known() || !landedEnvironment.ground() || !landedEnvironment.clear()
                                             || landedEnvironment.special() || landedEnvironment.liquid()) {
@@ -630,12 +684,6 @@ public final class NordGuard extends JavaPlugin implements Listener {
                                     safe = null;
                                 }
                             }, () -> {}));
-                    return;
-                }
-            }
-            if (environment.ground() && environment.clear() && result.clean() && !phased
-                    && !environment.liquid()) { safe = at.clone(); safeCreatedNanos = now; }
-            last = at;
         }
     }
 }

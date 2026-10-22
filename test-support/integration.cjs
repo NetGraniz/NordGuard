@@ -303,6 +303,32 @@ async function main() {
   assert.equal(+legitEnd[1],+legitStart[1],'Ordinary client-physics sprint jumps must not flag speed');
   assert.equal(+legitFlightEnd[1],+legitFlight[1],'Ordinary client-physics sprint jumps must not flag flight');
   pass('ordinary client-physics repeated sprint jumps do not flag speed or flight');
+  for(const [terrain,check,mode,expectCorrection,sinking] of [
+    ['water','WATERWALK','CORRECT',true,false],['snow','POWDERSNOW','CORRECT',true,false],
+    ['water','WATERWALK','OBSERVE',false,false],['snow','POWDERSNOW','OBSERVE',false,false],
+    ['boots','POWDERSNOW','CORRECT',false,false],['stone','POWDERSNOW','CORRECT',false,false],
+    ['snow','POWDERSNOW','CORRECT',false,true]]) {
+    await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+    await marker(`guardprobe surfacefixture GuardFixture ${terrain}`,/GUARD_SURFACE_READY/);await sleep(1000);
+    await marker(`guardprobe surfacearm GuardFixture ${check} ${mode}`,/GUARD_SURFACE_ARMED/);
+    const baseline=await marker('nordguard status',/corrections=(\d+)/),origin=bot.entity.position.clone();
+    const evidenceBefore=await marker('nordguard status',new RegExp(check+': (\\d+)'));
+    let corrected=false;const listener=()=>{corrected=true};bot.on('forcedMove',listener);
+    for(let i=0;i<45&&!corrected;i++){
+      bot.entity.position.set(origin.x+i*.025,80-(sinking?i*.02:0),origin.z);
+      const p=bot.entity.position;
+      bot._client.write('position',{x:p.x,y:p.y,z:p.z,flags:{onGround:false,hasHorizontalCollision:false}});await sleep(55);
+    }
+    bot.removeListener('forcedMove',listener);
+    const after=await marker('nordguard status',new RegExp(check+': (\\d+)'));
+    if(expectCorrection){assert(corrected,check+' without land anchor must receive correction');
+      assert(bot.entity.position.y<79.8,check+' must enter medium instead of merely logging');
+      assert(+after[1]>+evidenceBefore[1]);await completedCorrection(+baseline[1],check+' local recovery');
+    }else{assert(!corrected,'Unexpected surface correction: '+terrain+'/'+mode+'/'+sinking);
+      if(mode==='CORRECT')assert.equal(+after[1],+evidenceBefore[1],'Legitimate snow movement flagged');
+      else assert(+after[1]>+evidenceBefore[1],'OBSERVE positive control needs actual detection');}
+    pass(`surface ${terrain}/${mode}${sinking?'/sinking':''}: ${expectCorrection?'completed local correction without land anchor':'no correction'}`);
+  }
   for(const kind of ['climb','noweb','waterwalk']) {
     await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
     await marker(`guardprobe terrain GuardFixture ${kind}`,new RegExp('GUARD_TERRAIN '+kind));

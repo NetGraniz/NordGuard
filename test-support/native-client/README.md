@@ -44,3 +44,15 @@ The runner also requires positive predictor seeds, accepted frames and candidate
 After the movement matrix, the helper disables and enables the same plugin instance twice while the client remains connected. Each cycle requires channel cleanup, an attached session, fresh native acknowledgements and progressing owner samples. This tests lifecycle recovery; it does not recommend production hot-reloading.
 
 Local outputs include `native-results.json`, server/client logs and prediction diagnostics. Keep raw logs, worlds, player data and generated JARs out of Git. Publish an aggregate result in `TESTING.md`, including failing cases. These single-client tests do not validate 600-player capacity, every Wurst feature, cross-region combat, all special movement physics or a stable correction mode.
+
+`NORD_NATIVE_DOWNSTEP_ONLY=1` selects the warmed-up jump route. Set
+`NORD_NATIVE_DESCENT_SCENARIOS=wall-run,mountain-wall,downstep` to include wall-adjacent
+running and a descending staircase. Routes patrol inside prepared terrain;
+wall cases require actual wall proximity in owner traces. Use
+`NORD_NATIVE_DOWNSTEP_DELAYS=0,100,300` for added per-direction delays.
+
+`NORD_NATIVE_SURFACE_ONLY=1` uses the supplied Wurst Jesus and SnowShoe modules on
+synthetic source-water/snow surfaces without a land anchor. Each module needs a
+detect-only positive control and a completed CORRECT recovery. Point
+`NORD_NATIVE_WURST_PATH` at the explicitly selected client archive; its digest is
+recorded in the result. These fixtures connect only to the loopback test server.

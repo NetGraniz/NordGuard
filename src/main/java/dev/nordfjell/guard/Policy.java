@@ -7,7 +7,11 @@ import org.bukkit.configuration.ConfigurationSection;
 
 public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin, double verticalMargin,
               int burstTicks, int joinGrace, int transitionGrace, long maxGapNanos,
-              long alertNanos, boolean console, ActionLimits actions, CombatLimits combat, BoatLimits boats, MiningLimits mining) {
+              long alertNanos, boolean console, ActionLimits actions, CombatLimits combat, BoatLimits boats, MiningLimits mining, MovementLimits movement) {
+    public Policy(Map<Check,Mode> modes,int buffer,double horizontalMargin,double verticalMargin,int burstTicks,
+                  int joinGrace,int transitionGrace,long maxGapNanos,long alertNanos,boolean console,ActionLimits actions,CombatLimits combat,BoatLimits boats,MiningLimits mining) {
+        this(modes,buffer,horizontalMargin,verticalMargin,burstTicks,joinGrace,transitionGrace,maxGapNanos,alertNanos,console,actions,combat,boats,mining,MovementLimits.defaults());
+    }
     public Policy(Map<Check,Mode> modes,int buffer,double horizontalMargin,double verticalMargin,int burstTicks,
                   int joinGrace,int transitionGrace,long maxGapNanos,long alertNanos,boolean console,ActionLimits actions,CombatLimits combat,BoatLimits boats) {
         this(modes,buffer,horizontalMargin,verticalMargin,burstTicks,joinGrace,transitionGrace,maxGapNanos,alertNanos,console,actions,combat,boats,MiningLimits.defaults());
@@ -30,6 +34,7 @@ public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin
         java.util.Objects.requireNonNull(combat);
         java.util.Objects.requireNonNull(boats);
         java.util.Objects.requireNonNull(mining);
+        java.util.Objects.requireNonNull(movement);
         modes = Map.copyOf(modes);
         if (buffer < 2 || buffer > 100 || !range(horizontalMargin, 0, 1)
                 || !range(verticalMargin, 0.02, 1) || burstTicks < 1 || burstTicks > 20
@@ -47,7 +52,8 @@ public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin
         var modes = new EnumMap<Check, Mode>(Check.class);
         for(Check check:Check.values()) {
             Mode fallback=check==Check.CRITICALS?modes.getOrDefault(Check.REACH,Mode.OBSERVE)
-                    :check==Check.BOATFLIGHT?modes.getOrDefault(Check.FLIGHT,Mode.OBSERVE):Mode.OBSERVE;
+                    :check==Check.BOATFLIGHT?modes.getOrDefault(Check.FLIGHT,Mode.OBSERVE)
+                    :check==Check.POWDERSNOW?modes.getOrDefault(Check.WATERWALK,Mode.OBSERVE):Mode.OBSERVE;
             modes.put(check,mode(config.get("checks."+check.name().toLowerCase(Locale.ROOT)),fallback));
         }
         return new Policy(modes, config.getInt("movement.violation-buffer", 6),
@@ -56,7 +62,7 @@ public record Policy(Map<Check, Mode> modes, int buffer, double horizontalMargin
                 config.getInt("movement.transition-grace-ticks", 20),
                 Math.multiplyExact(config.getLong("movement.max-sample-gap-ms", 250), 1_000_000L),
                 Math.multiplyExact(config.getLong("alerts.cooldown-seconds", 10), 1_000_000_000L),
-                config.getBoolean("alerts.console", true), ActionLimits.read(config),CombatLimits.read(config),BoatLimits.read(config),MiningLimits.read(config));
+                config.getBoolean("alerts.console", true), ActionLimits.read(config),CombatLimits.read(config),BoatLimits.read(config),MiningLimits.read(config),MovementLimits.read(config));
     }
     private static Mode mode(Object value,Mode fallback) {
         if(value==null)return fallback;

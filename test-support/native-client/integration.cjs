@@ -17,6 +17,10 @@ const ordinaryDuration=Number(process.env.NORD_NATIVE_DURATION_MS||2000);
 const extended=process.env.NORD_NATIVE_EXTENDED==='1';
 const profile=process.env.NORD_NATIVE_PROFILE==='1';
 const downstepOnly=process.env.NORD_NATIVE_DOWNSTEP_ONLY==='1';
+const surfaceOnly=process.env.NORD_NATIVE_SURFACE_ONLY==='1';
+const descentRegression=process.env.NORD_NATIVE_DESCENT_REGRESSION==='1';
+const hostileDelays=(process.env.NORD_NATIVE_HOSTILE_DELAYS||'0,100,300').split(',').map(Number);
+assert(hostileDelays.every(d=>[0,100,300].includes(d)));
 const combatOnly=process.env.NORD_NATIVE_COMBAT_ONLY==='1';
 const boatsOnly=process.env.NORD_NATIVE_BOATS_ONLY==='1';
 const boatHostileOnly=process.env.NORD_NATIVE_BOAT_HOSTILE_ONLY==='1';
@@ -28,6 +32,8 @@ assert(miningDelays.length>0&&miningDelays.every(delay=>[0,100,300].includes(del
 const combatDelays=(process.env.NORD_NATIVE_COMBAT_DELAYS||'0,100,300').split(',').map(Number);
 assert(combatDelays.length>0&&combatDelays.every(delay=>[0,100,300].includes(delay)),'Invalid combat delays');
 const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
+const descentScenarios=(process.env.NORD_NATIVE_DESCENT_SCENARIOS||'downstep').split(',');
+assert(descentScenarios.every(s=>['downstep','wall-run','mountain-wall'].includes(s)));
 assert(downstepDelays.length>0&&downstepDelays.every(delay=>[0,100,300].includes(delay)),'Invalid downstep delays');
 assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
 const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[],predictionCoverage=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
@@ -56,11 +62,11 @@ async function control(value){const file=path.join(root,'client/control.json');f
   }}
 }
 async function mode(next,options={}){const id=++sequence;await control({id,mode:next,...options,
-  patrol:ordinaryDuration>2000&&['walk','sprint','jump','sneak'].includes(next)});
+  patrol:options.patrol??(ordinaryDuration>2000&&['walk','sprint','jump','sneak'].includes(next))});
   await until(()=>{if(fs.existsSync(path.join(root,'client/failure.txt')))throw Error(fs.readFileSync(path.join(root,'client/failure.txt'),'utf8'));
     if(next!=='stop'&&state().screen==='DeathScreen')throw Error('Native fixture player died; case is invalid');
     if(clientExit)throw Error('Native client exited: '+clientOutput.slice(-2000));return state().id===id;},'client mode '+next,20000);}
-async function stats(){const output=await marker('nordguard status',/BOATFLIGHT: \d+/);const result={};
+async function stats(){const output=await marker('nordguard status',/POWDERSNOW: \d+/);const result={};
   for(const match of output.matchAll(/\b([A-Z]+): (\d+)/g))result[match[1]]=+match[2];
   result.corrections=+output.match(/corrections=(\d+)/)[1];return result;}
 async function recording(operation){
@@ -283,6 +289,37 @@ async function miningMatrix(original,config) {
     await marker('guardprobe miningclear GuardFixture',/GUARD_MINING_CLEARED/);
   }
 }
+async function surfaceMatrix(){
+  if(!client||clientExit)await launchClient(true);
+  for(const [terrain,action,check] of [['water','water','WATERWALK'],['snow','snow','POWDERSNOW']]){
+    for(const policyMode of ['OBSERVE','CORRECT']){
+      proxy.delay=0;proxy.jitter=false;await prepare();await mode(action);await activeState(action);
+      await marker('guardprobe surfacefixture GuardFixture '+terrain,/GUARD_SURFACE_READY/);
+      await marker(`guardprobe surfacearm GuardFixture ${check} ${policyMode}`,/GUARD_SURFACE_ARMED/);
+      const before=await stats();await sleep(2200);const input=await activeState(action),after=await stats();
+      measurements.push({kind:'native-surface',terrain,action,policyMode,before,after,input});
+      assert(input.moduleEnabled,'Real Wurst surface module must be active');
+      if(policyMode==='OBSERVE')assert(after[check]>before[check]&&after.corrections===before.corrections,'Surface exploit positive control did not detect without correction');
+      else assert(after[check]>before[check]&&after.corrections>before.corrections,'Real surface module did not receive completed correction without land anchor');
+      pass(`actual Wurst ${action}, ${policyMode}, no land anchor`);
+      await mode('idle');
+    }
+  }
+  assert(!/Deferred player check after internal error|Cannot read world asynchronously|GUARD_PROBE_FAIL/.test(serverOutput));
+}
+async function movementHostiles(){
+  for(const delay of hostileDelays){
+    proxy.delay=delay;proxy.jitter=delay===300;
+    for(const [action,terrain,check] of [['flight',null,'FLIGHT'],['speed',null,'SPEED'],['spider','spider','SPIDER'],['water','waterwalk','WATERWALK']]){
+      await prepare(terrain);const before=await stats(),origin=await activeState('idle');await mode(action);const enabled=await activeState(action);
+      assert(enabled.moduleEnabled,'Actual Wurst module must be enabled: '+action);
+      await sleep(5000);await mode('idle');await sleep(1200);
+      const after=await stats(),end=await activeState('idle');measurements.push({kind:'wurst',delay,jitter:proxy.jitter,action,terrain,before,after,origin,enabled,end});
+      if(after[check]<=before[check]||after.corrections<=before.corrections){const issue=`Wurst ${action}, ${delay}ms: own evidence or completed correction missing`;failures.push(issue);console.log('FAIL: '+issue);}
+      else pass(`actual Wurst ${action}, ${delay}ms detected and corrected`);
+    }
+  }
+}
 async function main(){
   for(const port of [25659,25660])await new Promise((resolve,reject)=>{const s=net.connect({host:'127.0.0.1',port});
     s.on('connect',()=>{s.destroy();reject(Error('Test port occupied '+port))});s.on('error',resolve);});
@@ -299,6 +336,7 @@ async function main(){
   fs.writeFileSync(config,original.replace(/(flight|speed|spider|waterwalk|climb|noweb|noslow): OBSERVE/g,'$1: CORRECT')
     .replace('world-replica: false','world-replica: true').replace('  enabled: false','  enabled: true'));
   await marker('nordguard reload',/configuration reloaded/);await proxy.start();
+  if(surfaceOnly){await surfaceMatrix();return;}
   if(combatOnly){await combatMatrix(original,config);return;}
   if(boatsOnly){await boatMatrix(original,config);return;}
   if(miningOnly){await miningMatrix(original,config);return;}
@@ -327,22 +365,29 @@ async function main(){
       fs.appendFileSync(path.join(root,'native-prediction.log'),inspect+'\n');
     }
   }
-  for(const delay of downstepDelays) {
+  for(const delay of downstepDelays) for(const descent of descentScenarios) {
     proxy.delay=delay;proxy.jitter=delay===300;await prepare();
     await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
-    const before=await stats();await mode('jump');await sleep(12000);await mode('idle');await sleep(1200);
-    await marker('guardprobe ordinaryscenario GuardFixture downstep',/GUARD_ORDINARY_SCENARIO/);
-    const origin=await activeState('idle');await mode('jump');await sleep(12000);
+    const before=await stats();await mode('jump',{patrol:true});await sleep(12000);await mode('idle');await sleep(1200);
+    const descentOffset=serverOutput.length;
+    await marker('guardprobe ordinaryscenario GuardFixture '+descent,/GUARD_ORDINARY_SCENARIO/);
+    await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
+    const origin=await activeState('idle');await mode('jump',{patrol:true});await sleep(12000);
     const activeEnd=await activeState('jump');await mode('idle');await sleep(1200);const after=await stats();
     const issues=[];
+    if(descent!=='downstep'&&!/wall=true/.test(serverOutput.slice(descentOffset)))issues.push('wall proximity was not observed');
     if(activeEnd.travel<12)issues.push('insufficient native travel across step');
-    if(!Number.isFinite(activeEnd.minY)||activeEnd.minY>origin.y-.9)issues.push('one-block descent was not observed');
+    if(descent!=='wall-run'&&(!Number.isFinite(activeEnd.minY)||activeEnd.minY>origin.y-(descent==='mountain-wall'?3:.9)))issues.push('descent was not observed');
     for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])
       if(after[check]!==before[check])issues.push('false positive '+check);
     if(after.corrections!==before.corrections)issues.push('unexpected correction');
-    measurements.push({kind:'downstep',delay,jitter:proxy.jitter,before,after,origin,end:activeEnd});
-    if(issues.length) {const issue=`native sprint-jump one-block downstep, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
-    else pass(`native sprint-jump one-block downstep after warmup, ${delay}ms per direction`);
+    measurements.push({kind:descent,delay,jitter:proxy.jitter,before,after,origin,end:activeEnd});
+    if(issues.length) {const issue=`native sprint-jump ${descent}, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
+    else pass(`native sprint-jump ${descent} after warmup, ${delay}ms per direction`);
+  }
+  if(downstepOnly&&descentRegression){
+    await stopClient();proxy.delay=0;proxy.jitter=false;await sleep(1500);await launchClient(true);
+    await movementHostiles();await surfaceMatrix();
   }
   if(!downstepOnly) {
   if(predictionCoverage.some(p=>p.action==='walk'&&p.delay===0&&p.seeds>0&&p.accepted>0&&p.trials>0))
@@ -378,17 +423,7 @@ async function main(){
   }
   if(!ordinaryOnly){
   proxy.delay=0;proxy.jitter=false;await stopClient();await sleep(1500);await launchClient(true);
-  for(const delay of [0,100,300]){
-    proxy.delay=delay;proxy.jitter=delay===300;
-    for(const [action,terrain,check] of [['flight',null,'FLIGHT'],['speed',null,'SPEED'],['spider','spider','SPIDER'],['water','waterwalk','WATERWALK']]){
-      await prepare(terrain);const before=await stats(),origin=await activeState('idle');await mode(action);const enabled=await activeState(action);
-      assert(enabled.moduleEnabled,'Actual Wurst module must be enabled: '+action);
-      await sleep(5000);await mode('idle');await sleep(1200);
-      const after=await stats(),end=await activeState('idle');measurements.push({kind:'wurst',delay,jitter:proxy.jitter,action,terrain,before,after,origin,enabled,end});
-      if(after[check]<=before[check]||after.corrections<=before.corrections){const issue=`Wurst ${action}, ${delay}ms: own evidence or completed correction missing`;failures.push(issue);console.log('FAIL: '+issue);}
-      else pass(`actual Wurst ${action}, ${delay}ms detected and corrected`);
-    }
-  }
+  await movementHostiles();
   }
   proxy.delay=0;proxy.jitter=false;await prepare();
   for(let cycle=1;cycle<=2;cycle++) {
@@ -411,6 +446,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,descentScenarios,surfaceOnly,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

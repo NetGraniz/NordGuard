@@ -113,8 +113,9 @@ class BatchedJumpTest {
         model.accept(frame(0, 100, true), policy);
         model.accept(frame(0, 99, false), policy);
         model.accept(frame(0, 80.12129684, false), policy);
-        model.accept(frame(.36, 80.42, false), policy, 80);
-        assertEquals(20, model.accept(frame(.72, 80, true), policy).landingDistance(), 1E-9);
+        var inferred=model.accept(frame(.36, 80.42, false), policy, 80);
+        assertEquals(20,inferred.landingDistance(),1E-9);assertTrue(inferred.inferredLanding());
+        assertTrue(model.accept(frame(.72,80,true),policy).landingDistance()<1);
     }
 
     private static EnumSet<Check> repeatedTakeoff(double height) {

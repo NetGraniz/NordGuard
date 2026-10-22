@@ -17,9 +17,11 @@ final class MovementModel {
         }
         boolean medium() { return liquidSurface || climbing || web; }
     }
-    record Result(EnumSet<Check> flags, double landingDistance, boolean clean) {}
+    record Result(EnumSet<Check> flags, double landingDistance, boolean clean,boolean inferredLanding) {
+        Result(EnumSet<Check> flags,double landingDistance,boolean clean){this(flags,landingDistance,clean,false);}
+    }
     private Frame last;
-    private int airTicks, groundTicks, jumpAge, descentAge;
+    private int airTicks, groundTicks, jumpAge, descentAge, idleTicks;
     private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
     private double slowDebt, slowCredit, slowLimit;
     private double lastSupportY=Double.NaN;
@@ -28,7 +30,7 @@ final class MovementModel {
     private final double[] scores = new double[Check.values().length];
 
     void reset() {
-        last = null; airTicks = groundTicks = 0; jumpAge = descentAge = 100;
+        last = null; airTicks = groundTicks = idleTicks = 0; jumpAge = descentAge = 100;
         lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
         slowDebt=slowCredit=slowLimit=0;flight.reset();
         lastSupportY=Double.NaN;
@@ -49,6 +51,7 @@ final class MovementModel {
     /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
     void transportIdleTick() {
         if (last == null || last.exempt() || last.medium()) return;
+        idleTicks=Math.min(5,idleTicks+1);
         // This is a trusted owner tick, not a client tick claim. Keep the
         // minimum takeoff interval in elapsed owner time across transport gaps.
         jumpAge = Math.min(100, jumpAge + 1);
@@ -95,6 +98,7 @@ final class MovementModel {
         }
         double dx = next.x() - last.x(), dy = next.y() - last.y(), dz = next.z() - last.z();
         double horizontal = Math.hypot(dx, dz);
+        int arrivalTicks=Math.min(policy.movement().coalescedTicks(),Math.max(3,idleTicks+1));idleTicks=0;
         double previousSupportY=lastSupportY;lastSupportY=supportY;
         if (!Double.isFinite(horizontal) || !Double.isFinite(dy)) {
             reset(); last = next;
@@ -141,15 +145,15 @@ final class MovementModel {
         // Owner snapshots can coalesce the first few native steps of a jump.
         // Match their cumulative height; do not grant momentum to arbitrary micro-hops.
         jumpMomentum *= .91;
-        int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity()) : 0;
+        int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity(),arrivalTicks) : 0;
         // A batched landing/takeoff may have no grounded owner snapshot at all.
         // Require server collision support and descent near that floor, not the client ground bit.
-        // The third takeoff step is just over one block above the floor, so the
-        // current bounded scan can no longer see it. Keep only the immediately
-        // previous server-observed floor; never manufacture air as support.
+        // The bounded two-block floor scan covers ordinary jump height. Keep
+        // only the immediately previous observed floor if a slope moves it out
+        // of range; never manufacture air as support.
         double takeoffSupport=Double.isFinite(supportY)?supportY:previousSupportY;
         double projectedY=last.y(),projectedVelocity=descentDy;
-        for(int step=0;step<3;step++) {
+        for(int step=0;step<arrivalTicks;step++) {
             projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
         }
         boolean missedLanding = !last.ground() && !next.ground() && Double.isFinite(takeoffSupport)
@@ -157,11 +161,16 @@ final class MovementModel {
                 // Landing and the first jump step can share a snapshot whose
                 // net displacement is still down. Require a real upward change
                 // from descent, plus the checked floor and matching jump height.
-                && (dy > 0 || dy > (lastDy-next.gravity())*.98+policy.verticalMargin())
-                && last.y() >= takeoffSupport && last.y() - takeoffSupport <= 1
+                && (dy > 0 || dy < -.001 && dy > (lastDy-next.gravity()*arrivalTicks*.5)*.98+policy.verticalMargin())
+                && last.y() >= takeoffSupport && last.y() - takeoffSupport <= Math.max(1,last.y()-projectedY+.01)
                 && projectedY <= takeoffSupport + .01;
-        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - takeoffSupport, next.jump(), next.gravity());
+        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - takeoffSupport, next.jump(), next.gravity(),arrivalTicks);
+        double inferredDistance=0;
         if (jumpSteps != 0) {
+            // A verified intervening landing closes the previous fall. Account for
+            // it now, rather than adding later jumps to that same fall forever.
+            if(missedLanding&&falling)inferredDistance=Math.max(0,peakY-takeoffSupport);
+            falling=false;peakY=next.y();
             jumpMomentum = .2;
             for (int i = 1; i < jumpSteps; i++) jumpMomentum *= .91;
             airTicks = 0;
@@ -197,10 +206,10 @@ final class MovementModel {
                 jumpSteps!=0,ascentAllowance,policy.verticalMargin());
         score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
                 && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);
-        score(Check.SPIDER, next.gravity() > .001 && !last.ground() && !next.ground() && next.wall() && dy > .08
+        score(Check.SPIDER, jumpAge > policy.movement().spiderLaunchTicks() && next.gravity() > .001 && !last.ground() && !next.ground() && next.wall() && dy > .08
                 && dy > expectedDy + .04 + policy.verticalMargin() * .125,
                 policy, flags, Math.min(3, policy.buffer()));
-        if (!falling) { peakY = Math.max(last.y(), next.y()); falling = !next.ground(); }
+        if (!falling) { peakY = jumpSteps!=0?next.y():Math.max(last.y(), next.y()); falling = !next.ground(); }
         else peakY = Math.max(peakY, next.y());
         double landing = next.ground() && falling ? Math.max(0, peakY - next.y()) : 0;
         if (next.ground()) { falling = false; peakY = next.y(); }
@@ -209,13 +218,13 @@ final class MovementModel {
         lastDy = dy; last = next;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
-        return new Result(flags, landing, clean && speedDebt < 0.01 && slowDebt < .01);
+        return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0);
     }
 
-    private static int jumpSteps(double height, double jump, double gravity) {
+    private static int jumpSteps(double height, double jump, double gravity,int arrivalTicks) {
         if (jump <= 0 || gravity <= 0 || height <= 0) return 0;
         double cumulative = 0, velocity = jump;
-        for (int ticks = 1; ticks <= 3 && velocity > 0; ticks++) {
+        for (int ticks = 1; ticks <= arrivalTicks && velocity > 0; ticks++) {
             cumulative += velocity;
             if (Math.abs(height - cumulative) <= .035) return ticks;
             velocity = (velocity - gravity) * .98;

@@ -6,6 +6,8 @@ checks:
   speed: OBSERVE
   highjump: OBSERVE
   waterwalk: OBSERVE
+  # Missing on upgrade: inherits checks.waterwalk.
+  powdersnow: OBSERVE
   climb: OBSERVE
   noweb: OBSERVE
   noslow: OBSERVE
@@ -70,6 +72,14 @@ actions:
   places-per-second: 20
 # Conservative starting values, not proof of coverage or capacity.
 movement:
+  # Owner ticks only; client packet counts never increase this allowance.
+  max-coalesced-ticks: 6
+  # 1..3 owner ticks; repeated identical air snapshots need no full terrain scan each tick.
+  stationary-air-sample-ticks: 3
+  spider-launch-grace-ticks: 6
+  powder-snow-samples: 12
+  # Local downward recovery when a source-water/snow surface has no usable land anchor.
+  surface-sink-depth: 0.5
   violation-buffer: 6
   # Horizontal margin is a one-time burst budget, NOT added to every tick.
   horizontal-margin: 0.12

@@ -47,7 +47,24 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 if(combat.command(player,args))return;
                 if(mining.command(player,args))return;
                 if(boats.command(player,args))return;
-                if(action.equals("ordinaryscenario")) {
+                if(action.equals("surfacefixture")) {
+                    String kind=args[2];var at=player.getLocation();int x=at.getBlockX(),z=at.getBlockZ();
+                    Material medium=kind.equals("water")?Material.WATER:kind.equals("stone")?Material.STONE:Material.POWDER_SNOW;
+                    select(player,Check.WATERWALK,Policy.Mode.OFF);player.getInventory().clear();
+                    if(kind.equals("boots"))player.getInventory().setBoots(new org.bukkit.inventory.ItemStack(Material.LEATHER_BOOTS));
+                    for(int dx=-2;dx<=12;dx++)for(int dz=-2;dz<=2;dz++) {
+                        if(!Bukkit.isOwnedByCurrentRegion(at.getWorld(),(x+dx)>>4,(z+dz)>>4)||!at.getWorld().isChunkLoaded((x+dx)>>4,(z+dz)>>4))throw new AssertionError("Surface fixture not owned/loaded");
+                        for(int y=78;y<=83;y++)at.getWorld().getBlockAt(x+dx,y,z+dz).setType(y==78?Material.STONE:y==79?medium:Material.AIR,false);
+                    }
+                    player.teleportAsync(new Location(at.getWorld(),x+.5,80,z+.5)).thenRun(()->player.getScheduler().run(this,t->getLogger().info("GUARD_SURFACE_READY"),null));
+                } else if(action.equals("surfacearm")) {
+                    select(player,Check.valueOf(args[2]),Policy.Mode.valueOf(args[3]));
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");Field f=NordGuard.class.getDeclaredField("sessions");f.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)f.get(guard)).get(player.getUniqueId());
+                    f=session.getClass().getDeclaredField("safe");f.setAccessible(true);f.set(session,null);
+                    invoke(session,"suspend",new Class<?>[]{int.class},0);
+                    getLogger().info("GUARD_SURFACE_ARMED");
+                } else if(action.equals("ordinaryscenario")) {
                     NativeScenario.prepare(player,args[2]);
                     getLogger().info("GUARD_ORDINARY_SCENARIO "+args[2]);
                 } else if(action.equals("nativetrace")) {
@@ -92,7 +109,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     Location floor=player.getLocation();
                     var grounded=EnvironmentProbe.inspect(player,floor);
                     var rising=EnvironmentProbe.inspect(player,floor.clone().add(0,.42,0));
-                    var distant=EnvironmentProbe.inspect(player,floor.clone().add(0,1.01,0));
+                    var distant=EnvironmentProbe.inspect(player,floor.clone().add(0,2.01,0));
                     if(!grounded.known() || !grounded.ground() || !Double.isFinite(grounded.supportY())
                             || Math.abs(grounded.supportY()-floor.getY())>.01
                             || !rising.known() || rising.ground() || !Double.isFinite(rising.supportY()) || Math.abs(rising.supportY()-floor.getY())>.01

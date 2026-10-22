@@ -4,6 +4,30 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DownhillJumpRegressionTest {
+    @Test void sustainedMountainDescentBesideWallDoesNotBecomeFlight() {
+        for(int batch=1;batch<=5;batch++)for(int phase=0;phase<24;phase++) {
+            var model=new MovementModel();var policy=MovementModelTest.policy();
+            double x=0,y=160,velocity=0;boolean grounded=true;int cooldown=0;
+            model.accept(frame(0,y,true),policy,160);
+            var history=new java.util.ArrayDeque<String>();
+            for(int tick=0;tick<1000;tick++) {
+                double floor=160-Math.floor((x+phase*.2)/3);
+                if(grounded && y>floor+.001)grounded=false;
+                if(grounded && cooldown==0){velocity=.42;grounded=false;cooldown=10;}
+                if(cooldown>0)cooldown--;
+                x+=.35;y+=velocity;
+                if(y<=floor){y=floor;velocity=0;grounded=true;}else velocity=(velocity-.08)*.98;
+                if(tick%batch!=batch-1){model.transportIdleTick();continue;}
+                double support=y-floor<=2?floor:Double.NaN;
+                var f=new MovementModel.Frame(x,y,0,grounded||y-floor<=.06,true,false,.286,.42,.6,.08);
+                var result=model.accept(f,policy,support);
+                history.add(tick+":"+y+"/"+support+"/"+f.ground()+"/"+result.flags());if(history.size()>20)history.remove();
+                assertTrue(result.landingDistance()<5,"Separate short falls were merged: "+result.landingDistance()+" batch="+batch+", phase="+phase+", "+history);
+                assertFalse(result.flags().contains(Check.FLIGHT)||result.flags().contains(Check.SPIDER),
+                        "batch="+batch+", phase="+phase+", "+history);
+            }
+        }
+    }
     @Test void oneDelayedBurstFollowedByLegalMovementDoesNotKeepAddingSpeedEvidence() {
         var model=new MovementModel();var policy=MovementModelTest.policy();
         model.accept(frame(0,160,true),policy,160);
@@ -46,8 +70,9 @@ class DownhillJumpRegressionTest {
         model.accept(frame(0,180,true),policy);
         for(int tick=0;tick<14;tick++)model.accept(frame(0,179-tick,false),policy);
         model.accept(frame(0,160.49520091,false),policy,160);
-        model.accept(frame(.4,160.42,false),policy,160);
-        assertEquals(20,model.accept(frame(.7,160,true),policy,160).landingDistance(),1E-9);
+        var inferred=model.accept(frame(.4,160.42,false),policy,160);
+        assertEquals(20,inferred.landingDistance(),1E-9);assertTrue(inferred.inferredLanding());
+        assertTrue(model.accept(frame(.7,160,true),policy,160).landingDistance()<1);
     }
     private static java.util.EnumSet<Check> netDownBatches(double support,double horizontal) {
         var model=new MovementModel();var policy=MovementModelTest.policy();
