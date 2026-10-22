@@ -51,6 +51,19 @@ running and a descending staircase. Routes patrol inside prepared terrain;
 wall cases require actual wall proximity in owner traces. Use
 `NORD_NATIVE_DOWNSTEP_DELAYS=0,100,300` for added per-direction delays.
 
+`diagonal-1`, `diagonal-2` and `diagonal-mixed` select a descending stone
+corridor at 45 degrees to the block grid. Prefix the profile with
+`diagonal-15-` instead (`diagonal-15-1`, `diagonal-15-2`,
+`diagonal-15-mixed`) for 15 degrees. Each route has twelve seconds of
+flat sprint-jump warmup, then seven seconds (six at 15 degrees to stay inside
+the finite terrain) of continuous native forward,
+sprint and jump input without patrol turns. Floors drop every three X blocks
+by one block, two blocks, or alternating one/two blocks. The heading angle is
+not the slope's inclination. Actual X/Z travel and descent must occur;
+the result records input yaw, minimum height, violations and completed
+corrections. Test-only owner traces also record Flight score, support height,
+jump age and air age. The ordinary client does not load Wurst.
+
 Set `NORD_NATIVE_DESCENT_REGRESSION=1` to append Wurst movement and surface
 controls to the selected route matrix. `NORD_NATIVE_HOSTILE_DELAYS` selects the
 movement-control delays (0/100/300 ms); result metadata records these selections.

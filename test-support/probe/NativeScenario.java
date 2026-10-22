@@ -10,6 +10,25 @@ import org.bukkit.potion.PotionEffectType;
 final class NativeScenario {
     private NativeScenario() {}
     static void prepare(Player player,String kind) {
+        if(kind.startsWith("diagonal-")) {
+            String profile=kind.replace("diagonal-15-","diagonal-");
+            double gradient=kind.startsWith("diagonal-15-")?Math.tan(Math.toRadians(15)):1;
+            int drop=switch(profile) {case "diagonal-1" -> 1;case "diagonal-2" -> 2;case "diagonal-mixed" -> 0;
+                default -> throw new IllegalArgumentException("Unknown diagonal route");};
+            var at=player.getLocation();var world=at.getWorld();int x=at.getBlockX(),z=at.getBlockZ();
+            for(int dx=-2;dx<=44;dx++)for(int lateral=-3;lateral<=3;lateral++) {
+                int dz=(int)Math.round(dx*gradient)+lateral;
+                if(!Bukkit.isOwnedByCurrentRegion(world,(x+dx)>>4,(z+dz)>>4)
+                        ||!world.isChunkLoaded((x+dx)>>4,(z+dz)>>4))
+                    throw new AssertionError("Diagonal terrain not loaded/owned");
+            }
+            for(int dx=-2;dx<=44;dx++)for(int lateral=-3;lateral<=3;lateral++) {
+                int step=Math.max(0,(dx-4)/3),descent=drop==0?step+step/2:step*drop;
+                int floor=80-descent,dz=(int)Math.round(dx*gradient)+lateral;
+                for(int y=48;y<=86;y++)world.getBlockAt(x+dx,y,z+dz).setType(y<floor?Material.STONE:Material.AIR,false);
+            }
+            return;
+        }
         if(kind.equals("speed-effect") || kind.equals("jump-effect")) {
             player.addPotionEffect(new PotionEffect(kind.equals("speed-effect") ? PotionEffectType.SPEED
                     : PotionEffectType.JUMP_BOOST,200,1));

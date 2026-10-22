@@ -77,6 +77,9 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     Field scores=movement.getClass().getDeclaredField("scores");scores.setAccessible(true);
                     Field momentum=movement.getClass().getDeclaredField("jumpMomentum");momentum.setAccessible(true);
                     Field dy=movement.getClass().getDeclaredField("lastDy");dy.setAccessible(true);
+                    Field support=movement.getClass().getDeclaredField("lastSupportY");support.setAccessible(true);
+                    Field jumpAge=movement.getClass().getDeclaredField("jumpAge");jumpAge.setAccessible(true);
+                    Field airTicks=movement.getClass().getDeclaredField("airTicks");airTicks.setAccessible(true);
                     Field frame=movement.getClass().getDeclaredField("last");frame.setAccessible(true);
                     Field last=session.getClass().getDeclaredField("last");last.setAccessible(true);
                     int[] count={0};
@@ -88,7 +91,10 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                                     +" speed="+player.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED).getValue()
                                     +" momentum="+momentum.getDouble(movement)+" dy="+dy.getDouble(movement)
                                     +" frame="+frame.get(movement)
-                                    +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]);
+                                    +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]
+                                    +" flightScore="+((double[])scores.get(movement))[Check.FLIGHT.ordinal()]
+                                    +" supportY="+support.getDouble(movement)+" jumpAge="+jumpAge.getInt(movement)
+                                    +" airTicks="+airTicks.getInt(movement));
                             if(++count[0]>=300)trace.cancel();
                         } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
                     },null,1,1);
@@ -236,7 +242,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 } else if (action.equals("prepare")) {
                     player.clearActiveItem();
                     for(var effect:player.getActivePotionEffects())player.removePotionEffect(effect.getType());
-                    player.setFoodLevel(20);player.setSaturation(20);player.setVelocity(new org.bukkit.util.Vector());
+                    player.setFoodLevel(20);player.setSaturation(20);player.setVelocity(new org.bukkit.util.Vector());player.setFallDistance(0);
                     Location at = player.getLocation();
                     int x = at.getBlockX(), z = at.getBlockZ(), y = 80;
                     for (int dx = -2; dx <= 24; dx++) for (int dz = -2; dz <= 2; dz++) {

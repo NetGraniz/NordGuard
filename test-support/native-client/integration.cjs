@@ -33,7 +33,8 @@ const combatDelays=(process.env.NORD_NATIVE_COMBAT_DELAYS||'0,100,300').split(',
 assert(combatDelays.length>0&&combatDelays.every(delay=>[0,100,300].includes(delay)),'Invalid combat delays');
 const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
 const descentScenarios=(process.env.NORD_NATIVE_DESCENT_SCENARIOS||'downstep').split(',');
-assert(descentScenarios.every(s=>['downstep','wall-run','mountain-wall'].includes(s)));
+assert(descentScenarios.every(s=>['downstep','wall-run','mountain-wall','diagonal-1','diagonal-2','diagonal-mixed',
+  'diagonal-15-1','diagonal-15-2','diagonal-15-mixed'].includes(s)));
 assert(downstepDelays.length>0&&downstepDelays.every(delay=>[0,100,300].includes(delay)),'Invalid downstep delays');
 assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
 const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[],predictionCoverage=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
@@ -372,16 +373,20 @@ async function main(){
     const descentOffset=serverOutput.length;
     await marker('guardprobe ordinaryscenario GuardFixture '+descent,/GUARD_ORDINARY_SCENARIO/);
     await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
-    const origin=await activeState('idle');await mode('jump',{patrol:true});await sleep(12000);
+    const diagonal=descent.startsWith('diagonal-');
+    const routeYaw=descent.startsWith('diagonal-15-')?-75:-45;
+    const routeDuration=routeYaw===-75?6000:diagonal?7000:12000;
+    const origin=await activeState('idle');await mode('jump',{patrol:!diagonal,...(diagonal?{yaw:routeYaw}:{})});await sleep(routeDuration);
     const activeEnd=await activeState('jump');await mode('idle');await sleep(1200);const after=await stats();
     const issues=[];
-    if(descent!=='downstep'&&!/wall=true/.test(serverOutput.slice(descentOffset)))issues.push('wall proximity was not observed');
+    if(!diagonal&&descent!=='downstep'&&!/wall=true/.test(serverOutput.slice(descentOffset)))issues.push('wall proximity was not observed');
+    if(diagonal&&(activeEnd.z-origin.z<3||activeEnd.x-origin.x<8||activeEnd.routeYaw!==routeYaw))issues.push('diagonal input was not exercised');
     if(activeEnd.travel<12)issues.push('insufficient native travel across step');
     if(descent!=='wall-run'&&(!Number.isFinite(activeEnd.minY)||activeEnd.minY>origin.y-(descent==='mountain-wall'?3:.9)))issues.push('descent was not observed');
     for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])
       if(after[check]!==before[check])issues.push('false positive '+check);
     if(after.corrections!==before.corrections)issues.push('unexpected correction');
-    measurements.push({kind:descent,delay,jitter:proxy.jitter,before,after,origin,end:activeEnd});
+    measurements.push({kind:descent,delay,jitter:proxy.jitter,routeDuration,before,after,origin,end:activeEnd});
     if(issues.length) {const issue=`native sprint-jump ${descent}, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
     else pass(`native sprint-jump ${descent} after warmup, ${delay}ms per direction`);
   }

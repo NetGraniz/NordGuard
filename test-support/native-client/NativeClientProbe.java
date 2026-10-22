@@ -31,6 +31,7 @@ public final class NativeClientProbe implements ClientModInitializer {
     private java.lang.reflect.Field mouseState;
     private Boolean previousMouseState;
     private double originX, travel, lastX, lastZ, minY;
+    private float routeYaw=-90;
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
         AttackEntityCallback.EVENT.register((player,world,hand,target,hit)->{
@@ -61,6 +62,8 @@ public final class NativeClientProbe implements ClientModInitializer {
                     mc.options.keyAttack.setDown(false);
                     mode = next.get("mode").getAsString(); id = next.get("id").getAsLong();
                     patrol = next.has("patrol") && next.get("patrol").getAsBoolean();
+                    routeYaw=next.has("yaw")?next.get("yaw").getAsFloat():-90;
+                    if(!Float.isFinite(routeYaw))throw new IllegalArgumentException("Nonfinite route yaw");
                     targetId = next.has("targetId") ? next.get("targetId").getAsInt() : -1;
                     face = !next.has("face") || next.get("face").getAsBoolean();
                     attackCalls = 0; lastAttackTick = ticks;
@@ -171,7 +174,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                             mc.player.setYRot((float)Math.toDegrees(Math.atan2(dz,dx))-90);
                             mc.player.setXRot((float)-Math.toDegrees(Math.atan2(dy,Math.hypot(dx,dz))));
                     } else mc.options.keyAttack.setDown(false);
-                } else mc.player.setYRot(returning ? 90 : -90);
+                } else mc.player.setYRot(returning ? routeYaw+180 : routeYaw);
             }
             if (ticks % 2 == 0 || mode.equals("stop")) {
                 var state = new JsonObject();
@@ -189,6 +192,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                 state.addProperty("miningIndex",miningIndex);state.addProperty("miningTotal",miningTargets.length);state.addProperty("miningCalls",miningCalls);
                 state.addProperty("screen",mc.gui.screen()==null?"none":mc.gui.screen().getClass().getSimpleName());
                 state.addProperty("patrol",patrol);
+                state.addProperty("routeYaw",routeYaw);
                 state.addProperty("travel",travel);
                 state.addProperty("minY",minY);
                 if (mc.player != null && local) {

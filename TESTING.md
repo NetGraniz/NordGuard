@@ -1,5 +1,45 @@
 # Test record
 
+## 0.5.4 — reported diagonal descent false positive, 2026-10-23
+
+The unchanged published archive (SHA-256
+`bea89d928b15ced2c7fffe027b980c0289159dcfd17aa0f8e668c3cd6ae9fafb`)
+failed the new diagonal descent regression on an isolated Folia server with
+a real Minecraft 26.2 Fabric client and no Wurst installed. Production files
+and settings were not changed.
+
+The 45-degree route run tested one-block, two-block and alternating 1/2-block
+steps at 0/100/300 ms added delay in each direction (ordered jitter at 300).
+Three of nine cases produced both a false Flight violation and a completed
+correction: alternating steps at 0 ms, two-block steps at 100 ms, and
+alternating steps at 300 ms. The other six cases had no movement violations
+or corrections. All routes exercised actual movement and descent after
+twelve seconds of flat sprint-jump warmup. This reproduces the report; it
+does not establish that every other slope is safe.
+
+Owner traces show ordinary jump-height displacement after a descending
+contact while the model retains airborne state and accumulates Flight score
+to six. Wall proximity is false at the reproduced violation. This supports a
+missed landing/takeoff hypothesis, not a wall exemption or global threshold
+increase. Test helpers and terrain are not part of the release JAR.
+
+Raw 45-degree evidence: local isolated run
+`nordguard-test-20261022-diagonal-054-r1`, `native-results.json` and
+`native-server-output.log`. These logs contain synthetic test data and stay
+outside Git. The reported failures are retained, not counted as passes.
+
+The follow-up `nordguard-test-20261023-diagonal15-054-r2` completed all three
+15-degree headings at zero added delay without a movement violation or
+correction. Those routes run for six seconds, not seven, to leave stopping
+room before the finite corridor ends. No 100/300 ms 15-degree matrix was run.
+The initial `diagonal15-054-r1` run is invalid: its seven-second route left
+the fixture's end and the player died from falling during preparation of
+the next case. It is not a successful regression run. The helper now clears
+fall distance when preparing an independent case; ordinary route physics
+and the published server JAR remain unchanged.
+Hash-verified report/log copies for all three runs are retained in the
+private `Minecraft Backups/NordGuard-diagonal-descent-20261023` evidence folder.
+
 ## 0.5.4 — descending terrain and surfaces, 2026-10-22
 
 Release archive: 217,371 bytes, SHA-256
