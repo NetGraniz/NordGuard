@@ -1,10 +1,10 @@
-# 0.5.3 candidate
+# 0.5.3 development record
 
-Not a published release. Production installation is pending validation.
+Retained development evidence. See TESTING.md and RELEASE_NOTES.md for the final release archive and completed checks.
 
 The local source is based on `838484d` (0.5.2). The candidate adds configurable combat and vehicle checks plus additive configuration migration. The default configuration remains observation-only. Older missing Criticals and BoatFlight modes inherit Reach and Flight respectively; explicit modes are preserved.
 
-Completed so far:
+Checks recorded during development:
 
 - 343 Java unit tests pass, including pure boat traces, mounted-body clearance, native-attack FIFO ordering, wall retention, mining work accounting and exact-byte configuration backups.
 - Eight Node tests pass. The relay unit test now uses ephemeral ports rather than competing with the native fixture.
@@ -18,6 +18,15 @@ Paper combat passed the ordinary and hostile controls at 0/100 ms. At 300 ms, fo
 
 Native mining confirmed a real FastBreak cadence advantage without duplication: eight primary blocks produced eight drops, with no lower blocks removed. The first work-budget candidate slowed first-to-last accepted dirt from 4.404 to 6.443 seconds and wooden-pick stone from 5.784 to 9.233 seconds at zero delay; ordinary mining had no cancellations. At 300 ms, an arbitrary 15% relative-slowdown assertion failed despite a sequence inside the actual absolute work budget. The test now checks that configured work contract instead of a noisy percentage. Rejected-start history also covers delayed retries that outlive a newer start.
 
-Remaining runtime runs cover the newest archive, high-delay mining, instant/Creative controls and lifecycle behavior. No sustained 600-player capacity or full cheat-client coverage is claimed.
+One high-delay stone trial already took 10.66 seconds between its first and last
+accepted blocks, above the 9.20-second budget lower bound. Requiring a rejection
+merely because FastBreak was enabled was incorrect. The final tests require the
+actual configured work contract and only demand rejection for an exercised excess.
+
+The final archive passed 29 native Folia checks, 94 Paper runtime assertions and
+12 separate high-delay Paper mining checks. A copied production configuration
+passed preservation, backup and idempotence checks. No sustained 600-player
+capacity, successful native bubble/impulse launch control or full cheat-client
+coverage is claimed.
 
 Test helpers use synthetic data on loopback-only servers. Wurst is supplied locally and is not redistributed. No production configuration, player identity, authorization data or personal launcher account is part of this repository.

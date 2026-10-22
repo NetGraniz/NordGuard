@@ -1,6 +1,6 @@
 # Wurst coverage map
 
-NordGuard 0.5.3 candidate, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. Criticals now has a narrow native-attack evidence path; BoatFlight has a separate controller-owned model. Movement allowance comes from bounded owner state, not client packet counts. Sprint-jump ledge recognition and the stale Speed-evidence fix from 0.5.2 remain in place.
+NordGuard 0.5.3, Minecraft 26.2. This is a scope map, not a claim that every listed client feature has been blocked. Criticals has a narrow native-attack evidence path; BoatFlight has a separate controller-owned model. Movement allowance comes from bounded owner state, not client packet counts. Sprint-jump ledge recognition and the stale Speed-evidence fix from 0.5.2 remain in place.
 
 The final rc.8 native-client matrix detects and corrects Flight, SpeedHack, Spider and Jesus with the installed Wurst 7.56 client at three delay profiles on the tested Paper and Folia builds. Short default-setting reproductions are not a bypass audit. The relay used in earlier runs could reorder TCP fragments, so those latency results are historical observations rather than reliable FIFO-network evidence. The corrected fixture has a byte-order regression; its passing narrow matrix does not validate every terrain, transition or production CORRECT mode. Broader stage-4 validation remains open. See [TESTING.md](TESTING.md).
 
@@ -40,7 +40,7 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 | Dolphin | Not implemented | Submerged movement is deferred. |
 | Fish | Not implemented | Submerged movement is deferred. |
 | AutoSwim | Not a standalone violation | Automatic sprint input is not proof of impossible swimming. |
-| BoatFly | Partial | Conservative dry-air boat envelope and root-vehicle correction. Focused native Wurst ascent/correction passes on Folia with two passengers. No horizontal boat-speed classifier; unknown terrain, leashes and server impulses defer. Native bubble/impulse launch controls remain unexercised. |
+| BoatFly | Partial | Conservative dry-air boat envelope and root-vehicle correction. Native Wurst ascent/correction passes on Paper and Folia with two passengers. No horizontal boat-speed classifier; unknown terrain, leashes and server impulses defer. Native bubble/impulse launch controls remain unexercised. |
 | ExtraElytra | Not implemented | Elytra gliding is exempt. |
 | NoLevitation | Not implemented | Levitation is exempt. |
 | SnowShoe | Not implemented | Powder snow is exempt. |
@@ -56,7 +56,7 @@ The feature catalog was checked against the [official Wurst source tree at f9855
 | Reach | Implemented, bounded | Server/item interaction range plus margin; fresh player snapshots, not full lag reconstruction. Block interaction range is checked separately. |
 | Criticals | Partial | Attack-scoped native evidence rejects tested stationary Wurst Packet Criticals on exact full-block support. Requires a matching direct-melee critical event and active observer; moving, uncertain and unsupported cases defer. It is not a blanket ban on small jumps. |
 | CrystalAura | Not implemented | No crystal placement/attack module. |
-| FastBreak | Partial | Observed mining starts, native speed/early-stop threshold, permissive tool changes and lag compensation. Missing starts defer; no full dig-packet model. |
+| FastBreak | Partial | Observed starts, native early-stop compatibility and bounded full-work/pause accounting for repeated non-instant mining. Four rejected starts preserve delayed retries. Instant/Creative mining remains exempt; unknown starts defer. Bounded burst slack is not a full digging-protocol model. |
 | Nuker | Partial | BlockReach, FastBreak and configurable BreakRate reject excessive actions, not all automated legal mining. No block line-of-sight check. |
 | SpeedNuker | Partial | Same block reach, observed mining and rate limits. |
 | Excavator | Not implemented | No automated mining classifier. |

@@ -1,5 +1,60 @@
 # Test record
 
+## 0.5.3 — combat, vehicles and mining, 2026-10-22
+
+Final archive: 210,604 bytes, SHA-256
+`d38ef0b22277ba7cacec4a4ff64a0c48b2ead8b019057baaca196baa5b8be794`.
+All three final runtime copies were hashed and matched that archive.
+
+- Maven verify: 343 tests, zero failures/errors/skips. Eight Node tests also pass;
+  GitHub's build for source commit `af990f6` passed.
+- `final-053-folia-r1`: 29 checks pass, no failures/internal ownership errors.
+  This is a focused native regression with Wurst 7.56.1: 14 zero-delay combat
+  cases, two hostile boat cases and ten zero-delay mining cases, plus startup,
+  client connection and combat error checks. It is not the default full movement
+  or extended-terrain matrix. The supplied Wurst SHA-256 is
+  `210f9cbfd84a093fd12fcd3daf243fe0fe9569fff1a0d41573aaf0d56b2b3453`.
+- `final-053-paper-runtime-r1`: all 94 runtime assertions pass. They cover native
+  damage, permission defaults, reload failure retention, sustained movement
+  corrections, normal sprint-jumps, action gates, timeout cleanup, observer
+  reattachment, actual TCP delay and plugin disable cleanup.
+- `mining-053-paper-r5`: all 12 checks pass at 300 ms per direction with FIFO
+  jitter: ten mining cases plus startup/client connection. Ordinary dirt/stone,
+  legitimate instant mining and Creative receive no FastBreak cancellation or
+  evidence. Above-budget sequences are rejected; an enabled module whose actual
+  cadence is already inside the budget is not a violation. The same archive's
+  ten zero-delay mining cases passed earlier in `mining-053-paper-r4`.
+
+The final Folia BoatFly positive control rose 27.50 blocks. CORRECT limited the
+observed maximum to 7.54 blocks and completed four root-vehicle corrections.
+Player, boat and second passenger remained together. Earlier Paper/Folia boat
+runs and unexercised bubble/impulse launches are qualified in CANDIDATE.md.
+
+Combat assertions use actual target health and native damage flags. A normal
+noncritical hit must remain legal even with a client module enabled. All tested
+invalid stationary Packet Criticals criticals are cancelled; genuine jumping
+criticals, Sharpness V, other-plugin extra damage and prior cancellation remain
+valid controls. WallHit stops subsequent full-wall attacks after confirmation,
+not necessarily the first settling hit. Silent legal-looking rotations are not
+classified as cheats.
+
+Mining measurements use native input, actual server block states, drop events
+and timestamps. Synthetic dirt/stone give at most one drop per accepted break;
+no tracked lower block was removed. A cancelled native retry keeps its known
+start instead of becoming an unchecked unknown-start break. This is not a
+general duplication audit or complete digging-packet model.
+
+A private copy of the current production NordGuard config passed the actual
+ConfigMigration and Policy readers: 24 missing keys added, effective Policy and
+every existing value preserved, exact-byte backup verified, second migration
+byte-identical. The production source file's checksum remained unchanged.
+No private configuration bytes are committed here.
+
+New terrain work shares the spatial budget. There is no new repeating task,
+database, telemetry or per-tick world query from mining work accounting. The
+runtime microbenchmark remains a small synthetic test, not a 600-player capacity
+claim. Development failures and incomplete controls remain in CANDIDATE.md.
+
 ## 0.5.2 — sprint-jump transitions, 2026-10-22
 
 Archive: 170,865 bytes, SHA-256
