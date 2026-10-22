@@ -1,5 +1,82 @@
 # Test record
 
+## 0.5.4 — descending terrain and surfaces, 2026-10-22
+
+Release archive: 217,371 bytes, SHA-256
+`bea89d928b15ced2c7fffe027b980c0289159dcfd17aa0f8e668c3cd6ae9fafb`.
+Source commit `d135144` passed GitHub's build. Maven verify passed 350 tests;
+the eight Node tests passed as well.
+
+- `final-054-paper-runtime-r2`: 102 checks passed on the release archive.
+  Coverage includes minimum-height support, received stationary hover, repeated
+  corrections, native fall damage/recovery, permission defaults, action gates,
+  timeout cleanup, ordinary sprint-jumps, native acknowledgements and lifecycle.
+  Surface cases require completed local recovery without a land anchor.
+  OBSERVE only reports. Leather boots, solid ground and ordinary snow sinking
+  receive neither correction nor violation evidence.
+- `final-054-folia-native-r2`: 18 checks passed on the same archive, with no
+  failures/internal ownership errors. A real 26.2 Fabric client completed
+  wall-adjacent sprint-jumps, descending mountain steps and a one-block ledge
+  after warmup at 300 ms added delay per direction with ordered jitter. Routes
+  require actual travel, descent where applicable, observed wall proximity and
+  no evidence/correction for honest input. Actual Wurst Flight, Speed, Spider
+  and Jesus still receive detection and completed corrections at zero added
+  delay. Jesus and SnowShoe each pass OBSERVE and CORRECT controls without a
+  land anchor. Two disable/enable cycles resume sessions and acknowledgements.
+- The preceding archive
+  `fc461473ebd8de719a615110f058ec2ae79332cd85a54f2b7e06a3b38d1dd473`
+  passed 24 native checks, including all nine honest routes at 0/100/300 ms per
+  direction. The release adds a minimum-height terrain-loop clamp; bottom
+  support and the 300 ms routes were rerun as described above. The earlier
+  nine-route run is not a same-digest release test.
+
+Both native runs used Wurst 7.56.1, SHA-256
+`210f9cbfd84a093fd12fcd3daf243fe0fe9569fff1a0d41573aaf0d56b2b3453`.
+Neither Wurst nor test helpers are packaged in NordGuard.
+
+A private copy of the working config passed ConfigMigration: six missing fields
+added, effective Policy under the new reader preserved, exact-byte backup and
+byte-identical second merge. The production source file remained unchanged.
+Missing PowderSnow mode inherits WaterWalk; explicit modes/user values win.
+No private config is published.
+
+The final Paper runtime's 800-sample warm microbenchmark measured probe
+median/p95 2.9/39.6 microseconds and Reach-event median/p95 4.1/71.1 microseconds.
+These are local handler measurements, not server percentiles or 600-player
+capacity. Ordinary terrain queries retain the 36-cell cap. Surface recovery
+uses a body scan and five feet points when needed. There is no new repeating
+task, database, network service or per-packet world query. Received stationary
+air uses a configurable 1..3-owner-tick cadence; normal grace still applies.
+
+Retained development failures exposed grouped-takeoff Spider evidence,
+descending-terrain Flight at 300 ms and NoFall joining separate falls. Fixes
+retain narrow ledge support, bound takeoff inference by owner time/observed
+floors and account for intervening landings separately. An initial fixture
+walked beyond its platform; routes now patrol inside prepared terrain. The
+stationary-hover assertion waits eight rather than five seconds to include
+three-second grace plus the bounded sampling cadence. Missing evidence still
+fails the test. Raw logs/worlds remain outside Git.
+
+`load-054-paper-r1` compared the final release archive with no NordGuard in two
+fresh Paper worlds, baseline first. All six 10/25/50-client stages qualified:
+about 20 movement events/player/second, 15-second warmup and 30-second measurement
+per stage. NordGuard used release defaults: OBSERVE, packet observer on,
+experimental replica/prediction off. There were no internal/ordinary-movement
+alerts or corrections; no stage stopped for resource/generator limits.
+
+| Moving clients | Tick p95, no guard / guard (ms) | Server CPU, no guard / guard (cores) |
+| --- | --- | --- |
+| 10 | 3.762 / 3.342 | 0.554 / 0.380 |
+| 25 | 3.595 / 3.869 | 0.656 / 0.773 |
+| 50 | 4.156 / 5.491 | 1.337 / 1.390 |
+
+Both arms remained near 20 TPS. At 50 clients, the guard arm's largest measured
+tick was 18.91 ms. This is one short baseline-first comparison on a shared host,
+not a statistical attribution of every difference; the smaller 10-client
+number does not establish a speedup. It is Paper, not a Folia load benchmark,
+and does not validate 600 players, hostile packet floods or sustained production
+memory use. The JSON records the exact release digest and actual populations.
+
 ## 0.5.3 — combat, vehicles and mining, 2026-10-22
 
 Final archive: 210,604 bytes, SHA-256

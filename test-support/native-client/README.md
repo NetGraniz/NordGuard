@@ -51,6 +51,10 @@ running and a descending staircase. Routes patrol inside prepared terrain;
 wall cases require actual wall proximity in owner traces. Use
 `NORD_NATIVE_DOWNSTEP_DELAYS=0,100,300` for added per-direction delays.
 
+Set `NORD_NATIVE_DESCENT_REGRESSION=1` to append Wurst movement and surface
+controls to the selected route matrix. `NORD_NATIVE_HOSTILE_DELAYS` selects the
+movement-control delays (0/100/300 ms); result metadata records these selections.
+
 `NORD_NATIVE_SURFACE_ONLY=1` uses the supplied Wurst Jesus and SnowShoe modules on
 synthetic source-water/snow surfaces without a land anchor. Each module needs a
 detect-only positive control and a completed CORRECT recovery. Point
