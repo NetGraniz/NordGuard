@@ -42,9 +42,16 @@ final class ActionGuard implements Listener {
         boolean suspectCritical;
         volatile History history;
         Dig dig;
+        final Dig[] rejectedDigs=new Dig[4];
+        int rejectedCursor;
+        MiningPace miningPace=new MiningPace();
+        BlockBreakEvent pendingBreak;
+        long pendingWork,pendingBreakTime;
         ActionBudget attacks=new ActionBudget(), breaks=new ActionBudget(), places=new ActionBudget();
         void reset(Policy next,int serial,int delay) {
             policy=next;sequence=serial;grace=delay;history=null;dig=null;
+            miningPace=new MiningPace();pendingBreak=null;
+            java.util.Arrays.fill(rejectedDigs,null);rejectedCursor=0;
             wall=new WallWindow(next.combat());wallBounds=null;wallSource=null;
             attack.valid=false;attackTarget=-1;attackSource=null;suspectCritical=false;
             attacks=new ActionBudget();breaks=new ActionBudget();places=new ActionBudget();
@@ -254,7 +261,7 @@ final class ActionGuard implements Listener {
         var p=event.getPlayer();var s=ready(p);var b=event.getBlock();
         if(s==null || b.getWorld()!=p.getWorld() || !on(s.policy,Check.FASTBREAK) || !owned(b.getWorld(),b.getX(),b.getZ())) return;
         double speed=b.getBreakSpeed(p);
-        s.dig=new Dig(b.getWorld().getUID(),b.getX(),b.getY(),b.getZ(),b.getType(),s.ticks,new MiningProgress(speed,event.getInstaBreak()||speed>=1));
+        s.dig=new Dig(b.getWorld().getUID(),b.getX(),b.getY(),b.getZ(),b.getType(),s.ticks,new MiningProgress(speed,event.getInstaBreak()||speed>=1,s.policy.mining()));
     }
     @EventHandler(priority=EventPriority.MONITOR)
     public void abort(BlockDamageAbortEvent event) {
@@ -276,10 +283,44 @@ final class ActionGuard implements Listener {
         if(s==null || b.getWorld()!=p.getWorld() || !owned(b.getWorld(),b.getX(),b.getZ())) return;
         boolean cancel=blockReach(p,s,b);
         cancel|=rate(p,s,Check.BREAKRATE,s.breaks,s.policy.actions().breaksPerSecond(),System.nanoTime());
-        if(on(s.policy,Check.FASTBREAK) && s.dig!=null && s.dig.matches(b) && s.dig.progress.premature(b.getBreakSpeed(p)))
-            cancel|=violation(p,Check.FASTBREAK,"break before observed mining progress permits it");
-        s.dig=null;
+        if(on(s.policy,Check.FASTBREAK)) {
+            long now=System.nanoTime();
+            Dig known=s.dig!=null&&s.dig.matches(b)?s.dig:null;
+            if(known==null)for(int i=0;i<s.rejectedDigs.length;i++) {
+                Dig retry=s.rejectedDigs[i];
+                if(retry!=null&&s.ticks-retry.start>1200) {s.rejectedDigs[i]=null;continue;}
+                if(retry!=null&&retry.matches(b)) {known=retry;break;}
+            }
+            boolean premature=known!=null&&known.progress.premature(b.getBreakSpeed(p));
+            long work=known==null?0:known.progress.fullWorkNanos();
+            boolean accelerated=!s.miningPace.allows(now,work,s.policy.mining());
+            s.pendingBreak=event;s.pendingWork=work;s.pendingBreakTime=now;
+            if(premature||accelerated) {
+                boolean denied=violation(p,Check.FASTBREAK,premature
+                        ?"break before observed mining progress permits it":"repeated non-instant mining exceeds its bounded work allowance");
+                cancel|=denied;
+                if(denied&&known!=null) {
+                    int slot=-1;for(int i=0;i<s.rejectedDigs.length;i++)
+                        if(s.rejectedDigs[i]!=null&&s.rejectedDigs[i].positionMatches(b)) {slot=i;break;}
+                    s.rejectedDigs[slot<0?s.rejectedCursor++&3:slot]=known;
+                }
+            }
+        }
         if(cancel) { event.setCancelled(true);host.actionCancelled(); }
+    }
+    @EventHandler(priority=EventPriority.MONITOR)
+    public void miningFinished(BlockBreakEvent event) {
+        var p=event.getPlayer();if(!Bukkit.isOwnedByCurrentRegion(p))return;
+        State s=states.get(p.getUniqueId());if(s==null||s.pendingBreak!=event)return;
+        s.pendingBreak=null;
+        if(event.isCancelled()||s.policy!=host.policy())return;
+        s.miningPace.commit(s.pendingBreakTime,s.pendingWork,s.policy.mining());
+        if(s.dig!=null&&s.dig.positionMatches(event.getBlock()))s.dig=null;
+        for(int i=0;i<s.rejectedDigs.length;i++)if(s.rejectedDigs[i]!=null&&s.rejectedDigs[i].positionMatches(event.getBlock()))s.rejectedDigs[i]=null;
+        // A rejected native retry retains its original start/progress. Clearing
+        // it would turn the next retry into an unchecked unknown-start break.
+        // Four rejected-start references also cover delayed retries after a new
+        // start or abort. They add no per-tick world queries or unbounded map.
     }
     @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
     public void place(BlockPlaceEvent event) {

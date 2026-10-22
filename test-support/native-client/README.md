@@ -1,6 +1,6 @@
 # Native Minecraft client tests
 
-Windows-only isolated integration fixture for the installed Minecraft 26.2 client, Fabric Loader 0.19.5, Fabric API 0.161.0 and Wurst 7.56. Requires JDK 25 and a working graphics driver. These tests launch a real game process; they are not a headless capacity benchmark.
+Windows-only isolated integration fixture for the installed Minecraft 26.2 client, Fabric Loader 0.19.5, Fabric API 0.161.0 and locally supplied Wurst. Requires JDK 25 and a working graphics driver. These tests launch a real game process; they are not a headless capacity benchmark. `NORD_NATIVE_WURST_PATH` selects a specific local archive; result JSON records its version and SHA-256. The 0.5.3 regressions use the supplied 7.56.1 archive.
 
 Build NordGuard and `test-support/build-probe.ps1` first. Then:
 

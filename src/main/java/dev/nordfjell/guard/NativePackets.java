@@ -31,7 +31,7 @@ final class NativePackets {
         default void world(WorldSnapshot.Update update) {}
     }
     private final NativeWorld world;
-    private final Class<?> move, tickEnd, input, teleport, teleportAck, velocity, pong, bundle, ping, attack;
+    private final Class<?> move, vehicleMove, tickEnd, input, teleport, teleportAck, velocity, pong, bundle, ping, attack;
     private final MethodHandle attackTarget;
     private final MethodHandle handle, listenerConnection, networkConnection, channel;
     private final MethodHandle hasPos, hasRot, onGround, collision, x, y, z, yaw, pitch;
@@ -59,6 +59,7 @@ final class NativePackets {
         networkConnection=field(listener,"connection");
         channel=field(connection,"channel");
         move=type(GAME+"ServerboundMovePlayerPacket");
+        vehicleMove=type(GAME+"ServerboundMoveVehiclePacket");
         attack=type(GAME+"ServerboundAttackPacket");attackTarget=primitiveMethod(attack,"entityId",int.class);
         tickEnd=type(GAME+"ServerboundClientTickEndPacket");
         input=type(GAME+"ServerboundPlayerInputPacket");
@@ -153,7 +154,7 @@ final class NativePackets {
         private final Channel transport;
         private final ProbeDispatch probeDispatch=new ProbeDispatch();
         final AttackEvidence attacks=new AttackEvidence();
-        private volatile long terrainRevision,combatRevision;
+        private volatile long terrainRevision,combatRevision,vehicleMoves;
         volatile long evidenceNanos=250_000_000L;
         private final int entityId;
         private final Sink sink;
@@ -186,6 +187,7 @@ final class NativePackets {
         boolean active() { return installed && !closing && !failed; }
         long terrainRevision() {return terrainRevision;}
         long combatRevision() {return combatRevision;}
+        long vehicleMoves() {return vehicleMoves;}
         private void emit(int kind,int id,int flags,double x,double y,double z,float yaw,float pitch) {
             sink.event(kind,System.nanoTime(),id,flags,x,y,z,yaw,pitch);
         }
@@ -264,7 +266,8 @@ final class NativePackets {
             if((flags&1)!=0)h.center(px,pz);
             h.emit(MOVE,0,flags,px,(double)y.invokeExact(packet,Double.NaN),pz,
                     (float)yaw.invokeExact(packet,Float.NaN),(float)pitch.invokeExact(packet,Float.NaN));
-        } else if(attack.isInstance(packet)) h.attacks.attack((int)attackTarget.invokeExact(packet),System.nanoTime(),h.combatRevision,h.evidenceNanos);
+        } else if(vehicleMove.isInstance(packet))h.vehicleMoves++;
+        else if(attack.isInstance(packet)) h.attacks.attack((int)attackTarget.invokeExact(packet),System.nanoTime(),h.combatRevision,h.evidenceNanos);
         else if(tickEnd.isInstance(packet)) h.marker(TICK_END,0);
         else if(input.isInstance(packet)) {
             Object keys=inputValue.invokeExact(packet);int flags=0;

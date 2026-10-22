@@ -29,7 +29,7 @@ final class BoatGuard implements Listener {
         final BoatModel model=new BoatModel();
         int sequence,grace,cooldown;
         Location anchor;
-        long anchorAt,serial,pending,pendingAt;
+        long anchorAt,serial,pending,pendingAt,vehicleMoves;
         boolean awaitSupport;
         State(Boat boat,Policy policy,int sequence) {
             this.boat=boat.getUniqueId();world=boat.getWorld().getUID();this.policy=policy;this.sequence=sequence;
@@ -59,6 +59,10 @@ final class BoatGuard implements Listener {
         if(state==null||state.policy!=policy||!state.boat.equals(boat.getUniqueId())||!state.world.equals(boat.getWorld().getUID())) {
             state=new State(boat,policy,sequence);states.put(playerId,state);
         }
+        var observer=host.nativeHandle(player);
+        long received=observer==null?state.vehicleMoves:observer.vehicleMoves();
+        boolean fresh=observer!=null&&(freshMovement||received!=state.vehicleMoves);
+        state.vehicleMoves=received;
         if(state.pending!=0) {
             if(now<state.pendingAt||now-state.pendingAt>=SetbackWindow.TIMEOUT_NANOS) {
                 state.pending=0;state.anchor=null;state.model.reset();state.grace=policy.transitionGrace();
@@ -90,7 +94,7 @@ final class BoatGuard implements Listener {
             state.awaitSupport=false;state.model.reset();
         }
         var result=state.model.accept(new BoatModel.Frame(now,at.getX(),at.getY(),at.getZ(),probe.supported,
-                probe.water,probe.bubble,false,freshMovement,.04),limits);
+                probe.water,probe.bubble,false,fresh,.04),limits);
         if(result.clean()&&probe.clear&&(probe.supported||probe.water)&&!probe.bubble) {state.anchor=at.clone();state.anchorAt=now;}
         if(settling)return;
         if(result.violation()&&host.actionViolation(player,Check.BOATFLIGHT,"controlled boat remains above a conservative dry-air fall envelope")

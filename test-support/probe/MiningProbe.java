@@ -56,6 +56,7 @@ final class MiningProbe implements Listener {
         switch(args[0]) {
             case "miningprepare" -> {if(args.length!=3)throw new IllegalArgumentException("miningprepare <player> <dirt|stone|instant|creative>");prepare(player,args[2]);}
             case "miningresult" -> result(player);
+            case "miningready" -> ready(player);
             case "miningclear" -> {
                 Trial trial=owned(player);active=null;plugin.getLogger().info("GUARD_MINING_CLEARED "+trial.profile);
             }
@@ -88,6 +89,7 @@ final class MiningProbe implements Listener {
             cells.add(new Cell(x+dx,y-1,z+dz,Material.DIRT,false));
         }
         player.clearActiveItem();player.getInventory().clear();
+        player.getInventory().setHeldItemSlot(0);
         for(var effect:player.getActivePotionEffects())player.removePotionEffect(effect.getType());
         player.setGameMode(profile.equals("creative")?GameMode.CREATIVE:GameMode.SURVIVAL);
         player.setFlying(false);player.setSprinting(false);player.setFoodLevel(20);player.setSaturation(20);
@@ -105,11 +107,16 @@ final class MiningProbe implements Listener {
                     if(active!=trial)return;
                     if(!success) {plugin.getLogger().severe("GUARD_PROBE_FAIL mining teleport");return;}
                     owned(player);trial.readyNanos=System.nanoTime();trial.ready=true;
-                    for(Cell cell:cells)cell.speed=block(trial,cell).getBreakSpeed(player);
-                    plugin.getLogger().info("GUARD_MINING_READY {\"profile\":\""+profile+"\",\"tool\":\""+trial.tool
-                            +"\",\"creative\":"+profile.equals("creative")+",\"playerX\":"+(x+.5)+",\"playerY\":"+y+",\"playerZ\":"+(z+.5)
-                            +",\"targets\":"+positions(trial,true)+",\"below\":"+positions(trial,false)+"}");
+                    ready(player);
                 },null));
+    }
+    private void ready(Player player) {
+        Trial trial=owned(player);
+        for(Cell cell:trial.cells)cell.speed=block(trial,cell).getBreakSpeed(player);
+        plugin.getLogger().info("GUARD_MINING_READY {\"profile\":\""+trial.profile+"\",\"tool\":\""+trial.tool
+                +"\",\"creative\":"+(player.getGameMode()==GameMode.CREATIVE)+",\"onGround\":"+player.isOnGround()
+                +",\"heldItemType\":\""+player.getInventory().getItemInMainHand().getType()+"\",\"heldSlot\":"+player.getInventory().getHeldItemSlot()
+                +",\"targets\":"+positions(trial,true)+",\"below\":"+positions(trial,false)+"}");
     }
     private static void check(World world,int x,int z) {
         if(!world.isChunkLoaded(x>>4,z>>4)||!Bukkit.isOwnedByCurrentRegion(world,x>>4,z>>4))

@@ -22,6 +22,9 @@ const boatsOnly=process.env.NORD_NATIVE_BOATS_ONLY==='1';
 const boatHostileOnly=process.env.NORD_NATIVE_BOAT_HOSTILE_ONLY==='1';
 const miningOnly=process.env.NORD_NATIVE_MINING_ONLY==='1';
 const regressionOnly=process.env.NORD_NATIVE_REGRESSION_ONLY==='1';
+const skipCombat=process.env.NORD_NATIVE_SKIP_COMBAT==='1';
+const miningDelays=(process.env.NORD_NATIVE_MINING_DELAYS||'0,300').split(',').map(Number);
+assert(miningDelays.length>0&&miningDelays.every(delay=>[0,100,300].includes(delay)),'Invalid mining delays');
 const combatDelays=(process.env.NORD_NATIVE_COMBAT_DELAYS||'0,100,300').split(',').map(Number);
 assert(combatDelays.length>0&&combatDelays.every(delay=>[0,100,300].includes(delay)),'Invalid combat delays');
 const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
@@ -137,8 +140,10 @@ async function combatMatrix(original,config) {
     pass(`actual Wurst Packet Criticals positive control increases real damage, ${delay}ms`);
     const protectedCrit=await trial(delay,'open','critical','CORRECT');
     assert(protectedCrit.after.CRITICALS>protectedCrit.before.CRITICALS,'Own Criticals evidence missing');
-    assert(protectedCrit.result.actualDamage===0&&protectedCrit.result.successfulCriticalEvents===0&&protectedCrit.result.cancelledDamageEvents>0,'Packet Criticals still harms the target');
-    pass(`actual Wurst Packet Criticals causes zero target damage in CORRECT, ${delay}ms`);
+    assert(protectedCrit.result.successfulCriticalEvents===0&&protectedCrit.result.criticalDamageEvents>0
+      &&protectedCrit.result.cancelledDamageEvents===protectedCrit.result.criticalDamageEvents,'An actual Packet Criticals critical hit still damages the target');
+    assert(protectedCrit.result.actualDamage<=avg(normal)*protectedCrit.result.successfulDamageEvents+1E-6,'Uncancelled damage exceeds the ordinary-hit allowance');
+    pass(`actual Wurst Packet Criticals has no successful critical damage; ordinary noncritical hits remain allowed, ${delay}ms`);
     const legalCrit=await trial(delay,'open','crit-jump','CORRECT');
     assert(legalCrit.result.actualDamage>0&&legalCrit.result.successfulCriticalEvents>0&&legalCrit.result.cancelledDamageEvents===0
       &&legalCrit.after.CRITICALS===legalCrit.before.CRITICALS&&legalCrit.result.playerMaxRise>.1,'Legitimate descending critical was suppressed, flagged or not exercised');
@@ -174,9 +179,10 @@ async function combatMatrix(original,config) {
       &&cancelled.after.CRITICALS===cancelled.before.CRITICALS,'Prior other-plugin cancellation was overwritten or counted');
     pass(`prior other-plugin cancellation stays cancelled without extra Criticals evidence, ${delay}ms`);
     const combo=await trial(delay,'open','aura-critical','CORRECT');
-    assert(combo.after.CRITICALS>combo.before.CRITICALS&&combo.result.actualDamage===0
-      &&combo.result.cancelledDamageEvents>0,'Combined real KillAura/Packet Criticals still harms the target');
-    pass(`combined actual KillAura and Packet Criticals causes zero real target damage, ${delay}ms`);
+    assert(combo.after.CRITICALS>combo.before.CRITICALS&&combo.result.successfulCriticalEvents===0
+      &&combo.result.cancelledDamageEvents>0&&combo.result.criticalDamageEvents===combo.result.cancelledDamageEvents
+      &&combo.result.actualDamage<=avg(normal)*combo.result.successfulDamageEvents+1E-6,'Combined KillAura/Packet Criticals retains illegal critical damage');
+    pass(`combined actual KillAura and Packet Criticals has no successful illegal critical damage, ${delay}ms`);
     const noObserver=await trial(delay,'wall','killaura','CORRECT','none',false,{packets:false});
     assert(noObserver.after.WALLHIT>noObserver.before.WALLHIT&&noObserver.result.preAttackCancelled>=2
       &&noObserver.result.successfulDamageEvents<=1,'WallHit owner-only fallback did not cancel later hits');
@@ -229,25 +235,51 @@ async function boatMatrix(original,config) {
 }
 async function miningMatrix(original,config) {
   if(!client||clientExit)await launchClient(true);
-  for(const profile of ['dirt','stone','instant','creative'])for(const action of ['mine','mine-fast']) {
-    await mode('idle');proxy.delay=0;proxy.jitter=false;
-    fs.writeFileSync(config,original.replace(/^(\s*)(fastbreak|breakrate|blockreach): OBSERVE$/gm,'$1$2: CORRECT'));
+  const baselines=new Map();
+  for(const delay of miningDelays)for(const profile of ['dirt','stone','instant','creative'])
+  for(const [action,policyMode] of ['dirt','stone'].includes(profile)
+    ?[['mine','CORRECT'],['mine-fast','OBSERVE'],['mine-fast','CORRECT']]:[['mine','CORRECT'],['mine-fast','CORRECT']]) {
+    await mode('idle');proxy.delay=delay;proxy.jitter=delay===300;
+    fs.writeFileSync(config,original.replace(/^(\s*)(breakrate|blockreach): OBSERVE$/gm,'$1$2: CORRECT')
+      .replace(/^(\s*)fastbreak: OBSERVE$/m,`$1fastbreak: ${policyMode}`));
     await marker('nordguard reload',/configuration reloaded/);
-    const ready=combatJson((await marker(`guardprobe miningprepare GuardFixture ${profile}`,/GUARD_MINING_READY/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'READY');
-    if(profile==='instant')assert(ready.targets.every(target=>target.breakSpeed>=1),'Legal instamine profile is not instant on the server');
-    await sleep(3500);const before=await stats();
+    let ready=combatJson((await marker(`guardprobe miningprepare GuardFixture ${profile}`,/GUARD_MINING_READY/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'READY');
+    await sleep(3500);
+    ready=combatJson((await marker('guardprobe miningready GuardFixture',/GUARD_MINING_READY/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'READY');
+    if(profile==='instant')assert(ready.targets.every(target=>target.breakSpeed>=1),'Settled legal instamine profile is not instant on the server');
+    const before=await stats();
     await mode(action,{targets:ready.targets});
-    await until(()=>state().miningIndex===ready.targets.length,'native mining finished '+profile+' '+action,30000);
+    try {await until(()=>state().miningIndex===ready.targets.length,'native mining finished '+profile+' '+action,30000);}
+    catch(error) {
+      const result=combatJson((await marker('guardprobe miningresult GuardFixture',/GUARD_MINING_RESULT/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'RESULT');
+      measurements.push({kind:'mining',delay,profile,action,policyMode,ready,input:state(),result,before,after:await stats(),error:error.message});throw error;
+    }
     const input=await activeState(action);assert(input.miningCalls>0,'No native mining input');
     if(action==='mine-fast')assert(input.enabledModules.includes('fastBreakHack'),'Actual Wurst FastBreak did not enable');
     await mode('idle');await sleep(1000);
     const result=combatJson((await marker('guardprobe miningresult GuardFixture',/GUARD_MINING_RESULT/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'RESULT');
-    const after=await stats();measurements.push({kind:'mining',profile,action,ready,input,result,before,after});
+    const after=await stats();measurements.push({kind:'mining',delay,profile,action,policyMode,ready,input,result,before,after});
     if(action==='mine')assert(result.primaryAir===ready.targets.length&&result.acceptedBreaks===ready.targets.length,'Ordinary native mining did not produce the expected server blocks');
     assert(result.droppedItems<=result.acceptedBreaks,'Synthetic one-drop blocks produced more items than accepted breaks');
     assert(result.belowChanged===0,'Unrequested block below was changed');
     if(action==='mine')assert(result.cancelledBreaks===0&&after.FASTBREAK===before.FASTBREAK,'Legal mining was rejected or flagged');
-    pass(`actual server mining measured: ${profile}, ${action}, ${result.acceptedBreaks} blocks, ${result.droppedItems} dropped items`);
+    if(['instant','creative'].includes(profile))assert(result.cancelledBreaks===0&&after.FASTBREAK===before.FASTBREAK,'Legal instant/creative mining was rejected');
+    const key=delay+':'+profile;
+    if(action==='mine-fast'&&policyMode==='OBSERVE') {
+      assert(result.primaryAir===8&&result.acceptedBreaks===8,'Exploit-positive mining did not actually break all fixture blocks');
+      baselines.set(key,result);
+    } else if(action==='mine-fast'&&['dirt','stone'].includes(profile)) {
+      const baseline=baselines.get(key);assert(baseline,'Missing actual Wurst mining positive control');
+      const workTicks=Math.max(0,Math.ceil(1/ready.targets[0].breakSpeed)-1);
+      const requiredSpan=(result.acceptedBreaks-1)*(workTicks+5)*50-5*50;
+      // A toggled module is not a violation when transport already limits its
+      // server-visible cadence. Demand rejection only for an exercised excess.
+      if(baseline.acceptedSpanMillis<requiredSpan-50)
+        assert(after.FASTBREAK>before.FASTBREAK&&result.cancelledBreaks>0,'An exercised above-budget mining sequence was not rejected');
+      assert(result.primaryAir<baseline.primaryAir||result.acceptedSpanMillis>=requiredSpan-50,
+        'Accepted mining sequence exceeds the configured full-work/pause budget');
+    }
+    pass(`actual server mining measured: ${profile}, ${action}, ${policyMode}, ${delay}ms, ${result.acceptedBreaks} blocks, ${result.droppedItems} dropped items`);
     await marker('guardprobe miningclear GuardFixture',/GUARD_MINING_CLEARED/);
   }
 }
@@ -270,7 +302,7 @@ async function main(){
   if(combatOnly){await combatMatrix(original,config);return;}
   if(boatsOnly){await boatMatrix(original,config);return;}
   if(miningOnly){await miningMatrix(original,config);return;}
-  if(regressionOnly){await combatMatrix(original,config);await boatMatrix(original,config);await miningMatrix(original,config);return;}
+  if(regressionOnly){if(!skipCombat)await combatMatrix(original,config);await boatMatrix(original,config);await miningMatrix(original,config);return;}
   await launchClient(false);
   await prepare();await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);
   pass('native server floor support is separate from actual ground contact');
@@ -379,6 +411,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,regressionOnly,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

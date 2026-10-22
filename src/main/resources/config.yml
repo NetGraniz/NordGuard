@@ -33,6 +33,15 @@ vehicle:
   anchor-max-age-seconds: 15
   max-setback-distance: 32
   rise-margin: 0.35
+mining:
+  # Keep the native early-stop compatibility; repeated work is checked separately.
+  minimum-progress: 0.7
+  tick-slack: 2
+  progress-margin: 0.05
+  # Non-instant mining only. Instant/server-authorized breaks stay exempt.
+  inter-block-delay-ticks: 5
+  # Bounded amortized slack, not extra time granted to every block.
+  burst-ticks: 5
 combat:
   # Minimum known-wall observation span, and separately its retention between attacks.
   wall-confirm-ms: 200

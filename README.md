@@ -132,6 +132,19 @@ WallHit, NoClip, strict Criticals support probes and boat probes share a server-
 
 FastBreak tracks one active block per player. Repeated starts replace the timeline, matching the native game mode. The historical maximum break speed makes tool or effect changes permissive. Eligibility includes elapsed monotonic time because 26.2 mining uses lag compensation. A two-tick allowance and 0.05 progress margin accommodate event order; the native early-stop threshold is 0.7. Plugin-authorized instant breaks are allowed. A break without a known start is not proof of FastBreak and is not rejected by that check. Rate limits can still apply to instant or plugin-triggered actions.
 
+Repeated non-instant mining also has a bounded work budget. It accounts for full native block work and the configured pause after a previous non-instant break. Idle time refills only a small reserve; the same slack is not granted to every block. The budget uses monotonic elapsed time, not packet counts. Instant mining remains exempt and does not erase unpaid work. Four rejected-start references keep delayed native retries from losing their known start after a new start or abort; they add no per-tick world queries. The budget commits only at an uncancelled MONITOR event. Native retries can produce several cancelled attempts for one block; the counter is not a count of removed blocks.
+
+```yaml
+mining:
+  minimum-progress: 0.7
+  tick-slack: 2
+  progress-margin: 0.05
+  inter-block-delay-ticks: 5
+  burst-ticks: 5
+```
+
+The first three values retain native early-stop compatibility. The last two control the repeated-work budget; they are independent of `actions.breaks-per-second`. Setting the inter-block delay to zero removes that pause cost, not the full-work accounting. Increase burst slack only after reproducing ordinary mining under your network conditions. Raising the progress threshold toward 1.0 is stricter and needs separate latency testing. Creative and server-authorized instant breaks are not slowed by this budget.
+
 Rate budgets refill with monotonic elapsed time, not packet count or server TPS. One second of burst credit means a short burst can exceed the per-second setting. Pick limits compatible with your own instant-mining, building and combat mechanics before enabling CORRECT.
 
 `movement.violation-buffer` controls accumulated movement evidence. Spider uses at most three evidence samples; WaterWalk uses at least ten to allow brief surface crossings. `horizontal-margin` is added once to the speed burst budget, not to every tick's speed allowance. `vertical-margin` remains a vertical tolerance; Spider scales it when comparing gravity deceleration. `burst-ticks` bounds the horizontal allowance for brief bursts. Initial values are starting points, not calibrated guarantees.

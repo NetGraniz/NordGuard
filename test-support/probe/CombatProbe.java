@@ -129,6 +129,7 @@ final class CombatProbe implements Listener {
     }
     private static int sharpnessLevel(Player player) {return player.getInventory().getItemInMainHand().getEnchantmentLevel(sharpness());}
     private static void setWeapon(Player player,String profile) {
+        player.getInventory().setHeldItemSlot(0);
         var item=new ItemStack(Material.IRON_SWORD);
         if(profile.equals("sharpness"))item.addEnchantment(sharpness(),5);
         player.getInventory().setItemInMainHand(item);
@@ -205,7 +206,8 @@ final class CombatProbe implements Listener {
                 +",\"successfulCriticalEvents\":"+trial.successfulCriticalEvents+",\"totalFinalDamage\":"+trial.totalFinalDamage
                 +",\"floorY\":"+trial.floorY+",\"playerMinY\":"+trial.minY+",\"playerMaxY\":"+trial.maxY
                 +",\"playerMaxRise\":"+(trial.maxY-trial.floorY)+",\"sawPlayerMove\":"+trial.sawPlayerMove+",\"impulses\":"+trial.impulses
-                +",\"weapon\":\""+trial.weapon+"\",\"sharpnessLevel\":"+sharpnessLevel(player)+"}");
+                +",\"weapon\":\""+trial.weapon+"\",\"heldItemType\":\""+player.getInventory().getItemInMainHand().getType()
+                +"\",\"heldSlot\":"+player.getInventory().getHeldItemSlot()+",\"sharpnessLevel\":"+sharpnessLevel(player)+"}");
     }
     private void clear(Player player) {
         Trial trial=active;if(trial==null)return;

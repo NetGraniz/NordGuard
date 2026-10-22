@@ -6,6 +6,7 @@
 - Capture ordered, attack-scoped native movement evidence for narrow Packet Criticals checks. Require exact solid support and an actual direct-melee critical event; respect other plugins' cancellations and leave legitimate damage amounts unchanged.
 - Add a controller-owned boat model, bounded geometry probes and root-vehicle setback tickets. Vehicle runtime validation remains a release gate.
 - Add editable combat/vehicle limits, safe startup-only additive configuration migration with exact-byte backups, and support unquoted YAML OFF without interpreting true as a mode.
+- Add configurable, amortized full-work accounting for repeated non-instant mining. Retain up to four rejected starts across native delayed retries, commit only uncancelled breaks, and keep instant/Creative mining exempt. No additional per-tick terrain query is added by this budget.
 - Extend the isolated native Wurst fixture with real-health combat controls, vehicle/passenger measurements and server block/drop mining measurements. These test helpers are not packaged in the server JAR.
 
 ## 0.5.2 — sprint-jump transitions

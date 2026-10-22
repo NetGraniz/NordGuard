@@ -28,6 +28,8 @@ public final class NativeClientProbe implements ClientModInitializer {
     private net.minecraft.core.BlockPos[] miningTargets=new net.minecraft.core.BlockPos[0];
     private int miningIndex;
     private long miningCalls;
+    private java.lang.reflect.Field mouseState;
+    private Boolean previousMouseState;
     private double originX, travel, lastX, lastZ, minY;
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
@@ -120,8 +122,21 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
             mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight") || mode.equals("crit-jump")||mode.equals("boatfly")));
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
+            if(local&&mode.startsWith("mine")) {
+                if(mouseState==null) {mouseState=mc.mouseHandler.getClass().getDeclaredField("mouseGrabbed");mouseState.setAccessible(true);}
+                if(previousMouseState==null)previousMouseState=mc.mouseHandler.isMouseGrabbed();
+                // Virtual input in this loopback fixture only. Do not call GLFW,
+                // focus a window or capture the desktop cursor.
+                mouseState.setBoolean(mc.mouseHandler,true);
+                if(mc.gui.screen() instanceof net.minecraft.client.gui.screens.PauseScreen)mc.gui.setScreen(null);
+                if(mc.gui.screen()!=null)throw new IllegalStateException("Unexpected screen during fixture mining");
+            } else restoreMouse(mc);
             mc.options.keyAttack.setDown(local&&mode.startsWith("mine")&&miningIndex<miningTargets.length);
             if (mc.player != null && local) {
+                if(combat()||mode.startsWith("mine")) {
+                    mc.player.getInventory().setSelectedSlot(0);
+                    mc.options.keyDrop.setDown(false);while(mc.options.keyDrop.consumeClick()){}
+                }
                 travel += Math.hypot(mc.player.getX()-lastX,mc.player.getZ()-lastZ);
                 minY = Math.min(minY,mc.player.getY());
                 lastX = mc.player.getX(); lastZ = mc.player.getZ();
@@ -179,6 +194,8 @@ public final class NativeClientProbe implements ClientModInitializer {
                 if (mc.player != null && local) {
                     state.addProperty("x",mc.player.getX()); state.addProperty("y",mc.player.getY()); state.addProperty("z",mc.player.getZ());
                     state.addProperty("onGround",mc.player.onGround());state.addProperty("fallDistance",mc.player.fallDistance);
+                    state.addProperty("heldItem",mc.player.getMainHandItem().toString());state.addProperty("heldSlot",mc.player.getInventory().getSelectedSlot());
+                    state.addProperty("mouseGrabbed",mc.mouseHandler.isMouseGrabbed());
                     state.addProperty("riding",mc.player.isPassenger());
                     if(mc.player.getVehicle()!=null) {state.addProperty("vehicleId",mc.player.getVehicle().getId());state.addProperty("vehicleY",mc.player.getVehicle().getY());}
                 }
@@ -188,9 +205,13 @@ public final class NativeClientProbe implements ClientModInitializer {
         } catch (Exception failure) {
             error = failure.getClass().getSimpleName()+": "+failure.getMessage();
             mode = "idle";
+            try {restoreMouse(mc);}catch(ReflectiveOperationException ignored){}
             mc.options.keyAttack.setDown(false);if(mc.gameMode!=null)mc.gameMode.stopDestroyBlock();
             try { disableHack(); Files.writeString(root.resolve("failure.txt"),error); } catch(Exception ignored) {}
         }
+    }
+    private void restoreMouse(Minecraft mc) throws ReflectiveOperationException {
+        if(previousMouseState!=null) {mouseState.setBoolean(mc.mouseHandler,previousMouseState);previousMouseState=null;}
     }
     private boolean combat() {return Set.of("attack","attack-away","critical","killaura","aura-critical","crit-jump").contains(mode);}
     private Object getHack(String name) throws ReflectiveOperationException {
