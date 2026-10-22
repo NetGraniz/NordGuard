@@ -11,11 +11,17 @@ const wurstPath=path.resolve(process.env.NORD_NATIVE_WURST_PATH||launch.wurst);
 assert(fs.statSync(wurstPath).isFile(),'Wurst fixture JAR missing');
 const wurstVersion=path.basename(wurstPath).replace(/^Wurst-Client-v/,'').replace(/-MC.*$/,'');
 const wurstSha256=require('node:crypto').createHash('sha256').update(fs.readFileSync(wurstPath)).digest('hex');
+const pluginSha256=require('node:crypto').createHash('sha256').update(fs.readFileSync(path.join(project,`target/NordGuard-${version}.jar`))).digest('hex');
 const noDelay=process.env.NORD_NATIVE_NAGLE!=='1',ordinaryOnly=process.env.NORD_NATIVE_ORDINARY_ONLY==='1';
 const ordinaryDuration=Number(process.env.NORD_NATIVE_DURATION_MS||2000);
 const extended=process.env.NORD_NATIVE_EXTENDED==='1';
 const profile=process.env.NORD_NATIVE_PROFILE==='1';
 const downstepOnly=process.env.NORD_NATIVE_DOWNSTEP_ONLY==='1';
+const combatOnly=process.env.NORD_NATIVE_COMBAT_ONLY==='1';
+const boatsOnly=process.env.NORD_NATIVE_BOATS_ONLY==='1';
+const miningOnly=process.env.NORD_NATIVE_MINING_ONLY==='1';
+const combatDelays=(process.env.NORD_NATIVE_COMBAT_DELAYS||'0,100,300').split(',').map(Number);
+assert(combatDelays.length>0&&combatDelays.every(delay=>[0,100,300].includes(delay)),'Invalid combat delays');
 const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
 assert(downstepDelays.length>0&&downstepDelays.every(delay=>[0,100,300].includes(delay)),'Invalid downstep delays');
 assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
@@ -44,12 +50,12 @@ async function control(value){const file=path.join(root,'client/control.json');f
     await sleep(10); // Windows may briefly lock the destination while the native fixture reads it.
   }}
 }
-async function mode(next){const id=++sequence;await control({id,mode:next,
+async function mode(next,options={}){const id=++sequence;await control({id,mode:next,...options,
   patrol:ordinaryDuration>2000&&['walk','sprint','jump','sneak'].includes(next)});
   await until(()=>{if(fs.existsSync(path.join(root,'client/failure.txt')))throw Error(fs.readFileSync(path.join(root,'client/failure.txt'),'utf8'));
     if(next!=='stop'&&state().screen==='DeathScreen')throw Error('Native fixture player died; case is invalid');
     if(clientExit)throw Error('Native client exited: '+clientOutput.slice(-2000));return state().id===id;},'client mode '+next,20000);}
-async function stats(){const output=await marker('nordguard status',/PLACERATE: \d+/);const result={};
+async function stats(){const output=await marker('nordguard status',/BOATFLIGHT: \d+/);const result={};
   for(const match of output.matchAll(/\b([A-Z]+): (\d+)/g))result[match[1]]=+match[2];
   result.corrections=+output.match(/corrections=(\d+)/)[1];return result;}
 async function recording(operation){
@@ -91,6 +97,150 @@ async function stopClient(){if(client&&!clientExit){try{await mode('stop')}catch
   if(!fs.existsSync(root))return;
   fs.writeFileSync(path.join(root,'native-client-'+(fs.existsSync(path.join(root,'client/mods',path.basename(wurstPath)))?'wurst':'ordinary')+'.log'),clientOutput);
 }
+function combatJson(output,kind) {
+  const match=output.match(new RegExp('GUARD_COMBAT_'+kind+' (\\{[^\\r\\n]+\\})'));
+  assert(match,'Missing combat JSON: '+kind);return JSON.parse(match[1]);
+}
+async function combatMatrix(original,config) {
+  await launchClient(true);
+  async function trial(delay,terrain,action,policyMode,controlMode='none',face=true,options={}) {
+    await mode('idle');proxy.delay=delay;proxy.jitter=delay===300;
+    let nextConfig=original.replace(/^(\s*)(reach|wallhit|criticals): OBSERVE$/gm,`$1$2: ${policyMode}`);
+    if(options.packets===false)nextConfig=nextConfig.replace('  enabled: true','  enabled: false');
+    fs.writeFileSync(config,nextConfig);
+    await marker('nordguard reload',/configuration reloaded/);
+    const ready=combatJson(await marker(`guardprobe combatprepare GuardFixture ${terrain}`,/GUARD_COMBAT_READY/),'READY');
+    if(controlMode!=='none')await marker('guardprobe combatcontrol GuardFixture '+controlMode,/GUARD_COMBAT_CONTROL/);
+    if(options.weapon)await marker('guardprobe combatweapon GuardFixture '+options.weapon,/GUARD_COMBAT_WEAPON/);
+    await sleep(3000);const before=await stats();
+    await mode(action,{targetId:ready.targetId,face});await sleep(5500);const input=await activeState(action);
+    await mode('idle');await sleep(1500);
+    const result=combatJson(await marker('guardprobe combatresult GuardFixture',/GUARD_COMBAT_RESULT/),'RESULT');
+    const after=await stats();assert(input.attackCalls>=2,'Native attack input did not attack the fixture');
+    assert(result.preAttackCalls>=2,'Server did not receive actual fixture attacks');
+    if(action.includes('critical'))assert(input.enabledModules.includes('criticalsHack'),'Criticals module did not enable');
+    if(action.includes('aura'))assert(input.enabledModules.includes('killauraHack'),'KillAura module did not enable');
+    const data={kind:'combat',delay,jitter:proxy.jitter,terrain,action,policyMode,controlMode,face,options,input,result,before,after};
+    measurements.push(data);return data;
+  }
+  for(const delay of combatDelays) {
+    const normal=await trial(delay,'open','attack','CORRECT');
+    assert(normal.result.actualDamage>0&&normal.result.preAttackCancelled===0&&normal.result.cancelledDamageEvents===0
+      &&normal.after.CRITICALS===normal.before.CRITICALS,'Ordinary attacks were suppressed or flagged');
+    pass(`native ordinary melee causes real damage, ${delay}ms`);
+    const baseline=await trial(delay,'open','critical','OBSERVE');
+    assert(baseline.result.successfulCriticalEvents>0&&baseline.result.actualDamage>0,'Packet Criticals exploit-positive control did not produce real critical damage');
+    const avg=t=>t.result.actualDamage/t.result.successfulDamageEvents;
+    assert(avg(baseline)>avg(normal)*1.2,'Critical baseline did not increase real damage per hit');
+    pass(`actual Wurst Packet Criticals positive control increases real damage, ${delay}ms`);
+    const protectedCrit=await trial(delay,'open','critical','CORRECT');
+    assert(protectedCrit.after.CRITICALS>protectedCrit.before.CRITICALS,'Own Criticals evidence missing');
+    assert(protectedCrit.result.actualDamage===0&&protectedCrit.result.successfulCriticalEvents===0&&protectedCrit.result.cancelledDamageEvents>0,'Packet Criticals still harms the target');
+    pass(`actual Wurst Packet Criticals causes zero target damage in CORRECT, ${delay}ms`);
+    const legalCrit=await trial(delay,'open','crit-jump','CORRECT');
+    assert(legalCrit.result.actualDamage>0&&legalCrit.result.successfulCriticalEvents>0&&legalCrit.result.cancelledDamageEvents===0
+      &&legalCrit.after.CRITICALS===legalCrit.before.CRITICALS&&legalCrit.result.playerMaxRise>.1,'Legitimate descending critical was suppressed, flagged or not exercised');
+    pass(`native descending jump critical remains damaging, ${delay}ms`);
+    const wallObserve=await trial(delay,'wall','killaura','OBSERVE','none',false);
+    assert(wallObserve.result.actualDamage>0,'Wall exploit-positive control did not harm target');
+    pass(`actual Wurst KillAura through-wall positive control, ${delay}ms`);
+    const wall=await trial(delay,'wall','killaura','CORRECT','none',false);
+    assert(wall.after.WALLHIT>wall.before.WALLHIT&&wall.result.preAttackCancelled>=2,'Stable wall did not cancel real KillAura attacks at one attack/sec');
+    assert(wall.result.successfulDamageEvents<=1&&wall.result.actualDamage<wallObserve.result.actualDamage,'KillAura kept damaging target after wall confirmation');
+    pass(`stable wall blocks subsequent real KillAura damage at ordinary cooldown, ${delay}ms`);
+    const partial=await trial(delay,'partial','attack','CORRECT');
+    assert(partial.result.actualDamage>0&&partial.result.preAttackCancelled===0,'Visible target above a partial wall was suppressed');
+    pass(`native visible partial-wall attack remains damaging, ${delay}ms`);
+    for(const terrain of ['ceiling','slab-floor']) {
+      const legal=await trial(delay,terrain,'crit-jump','CORRECT');
+      assert(legal.result.actualDamage>0&&legal.result.playerMaxRise>0&&legal.result.preAttackCancelled===0
+        &&legal.result.cancelledDamageEvents===0&&legal.after.CRITICALS===legal.before.CRITICALS,
+        `Legal ${terrain} jumping attack was suppressed, flagged or not exercised`);
+      pass(`native ${terrain} jumping attacks remain damaging without Criticals evidence, ${delay}ms`);
+    }
+    const enchanted=await trial(delay,'open','crit-jump','CORRECT','none',true,{weapon:'sharpness'});
+    assert(enchanted.result.sharpnessLevel===5&&enchanted.result.successfulCriticalEvents>0
+      &&enchanted.result.actualDamage>0&&enchanted.result.cancelledDamageEvents===0
+      &&enchanted.after.CRITICALS===enchanted.before.CRITICALS,'Legal enchanted critical was suppressed or not exercised');
+    pass(`native Sharpness V legitimate critical remains damaging, ${delay}ms`);
+    const extra=await trial(delay,'open','crit-jump','CORRECT','extra');
+    assert(extra.result.successfulCriticalEvents>0&&extra.result.actualDamage>0&&extra.result.cancelledDamageEvents===0
+      &&extra.after.CRITICALS===extra.before.CRITICALS&&avg(extra)>avg(legalCrit),'Other-plugin legitimate critical damage was suppressed');
+    pass(`native legitimate critical retains other-plugin extra damage, ${delay}ms`);
+    const cancelled=await trial(delay,'open','critical','CORRECT','cancel');
+    assert(cancelled.result.actualDamage===0&&cancelled.result.cancelledDamageEvents>0
+      &&cancelled.after.CRITICALS===cancelled.before.CRITICALS,'Prior other-plugin cancellation was overwritten or counted');
+    pass(`prior other-plugin cancellation stays cancelled without extra Criticals evidence, ${delay}ms`);
+    const combo=await trial(delay,'open','aura-critical','CORRECT');
+    assert(combo.after.CRITICALS>combo.before.CRITICALS&&combo.result.actualDamage===0
+      &&combo.result.cancelledDamageEvents>0,'Combined real KillAura/Packet Criticals still harms the target');
+    pass(`combined actual KillAura and Packet Criticals causes zero real target damage, ${delay}ms`);
+    const noObserver=await trial(delay,'wall','killaura','CORRECT','none',false,{packets:false});
+    assert(noObserver.after.WALLHIT>noObserver.before.WALLHIT&&noObserver.result.preAttackCancelled>=2
+      &&noObserver.result.successfulDamageEvents<=1,'WallHit owner-only fallback did not cancel later hits');
+    pass(`wall check still cancels subsequent attacks with packet observer disabled, ${delay}ms`);
+  }
+  await mode('idle');await marker('guardprobe combatclear GuardFixture',/GUARD_COMBAT_CLEARED/);
+  assert(!/Cannot read world asynchronously|IllegalAccessError|GUARD_PROBE_FAIL|Deferred player check after internal error/.test(serverOutput),'Internal/ownership error in combat');
+  pass('combat matrix has no internal/ownership errors');
+}
+async function boatMatrix(original,config) {
+  await launchClient(true);
+  async function trial(terrain,action,policyMode,impulse=false) {
+    await mode('idle');proxy.delay=0;proxy.jitter=false;
+    fs.writeFileSync(config,original.replace(/^(\s*)boatflight: OBSERVE$/m,`$1boatflight: ${policyMode}`));
+    await marker('nordguard reload',/configuration reloaded/);
+    const ready=combatJson((await marker(`guardprobe boatprepare GuardFixture ${terrain}`,/GUARD_BOAT_READY/)).replaceAll('GUARD_BOAT_','GUARD_COMBAT_'),'READY');
+    await sleep(4000);const before=await stats();
+    if(impulse)await marker('guardprobe boatimpulse GuardFixture',/GUARD_BOAT_IMPULSE/);
+    await mode(action);await sleep(5000);const input=await activeState(action);await mode('idle');await sleep(500);
+    const result=combatJson((await marker('guardprobe boatresult GuardFixture',/GUARD_BOAT_RESULT/)).replaceAll('GUARD_BOAT_','GUARD_COMBAT_'),'RESULT');
+    const after=await stats();assert(input.riding&&input.vehicleId===ready.boatId,'Native client is not controlling the fixture boat');
+    if(action==='boatfly')assert(input.enabledModules.includes('boatFlyHack'),'Actual Wurst BoatFly did not enable');
+    assert(result.sameBoat&&result.passengerCount===2&&result.cowStillRiding,'Boat/passenger tree was lost');
+    const data={kind:'boat',terrain,action,policyMode,impulse,ready,input,result,before,after};measurements.push(data);
+    await marker('guardprobe boatclear GuardFixture',/GUARD_BOAT_CLEARED/);return data;
+  }
+  for(const terrain of ['land','water','bubble']) {
+    const ordinary=await trial(terrain,'boat','CORRECT');
+    assert(ordinary.after.BOATFLIGHT===ordinary.before.BOATFLIGHT&&ordinary.after.corrections===ordinary.before.corrections,'Ordinary boat was flagged or corrected: '+terrain);
+    if(terrain==='bubble')assert(ordinary.result.maxY>ordinary.result.startY+1,'Real bubble launch was not exercised');
+    pass(`native two-passenger ${terrain} boat remains unflagged`);
+  }
+  const impulse=await trial('land','boat','CORRECT',true);
+  assert(impulse.result.maxY>impulse.result.startY+1&&impulse.after.BOATFLIGHT===impulse.before.BOATFLIGHT,'Server-authorized boat impulse was flagged or unexercised');
+  pass('native server-authorized boat impulse remains unflagged');
+  const positive=await trial('land','boatfly','OBSERVE');
+  assert(positive.result.maxY>positive.result.startY+5,'Actual Wurst BoatFly positive control did not ascend');
+  pass('actual Wurst BoatFly has server-observed ascent in OBSERVE');
+  const protectedBoat=await trial('land','boatfly','CORRECT');
+  assert(protectedBoat.after.BOATFLIGHT>protectedBoat.before.BOATFLIGHT&&protectedBoat.after.corrections>protectedBoat.before.corrections,'BoatFly was not corrected');
+  assert(protectedBoat.result.maxY<positive.result.maxY-3,'BoatFly ascent was not bounded by actual vehicle correction');
+  pass('actual Wurst BoatFly is corrected with the original two-passenger boat intact');
+}
+async function miningMatrix(original,config) {
+  await launchClient(true);
+  for(const profile of ['dirt','stone','instant','creative'])for(const action of ['mine','mine-fast']) {
+    await mode('idle');proxy.delay=0;proxy.jitter=false;
+    fs.writeFileSync(config,original.replace(/^(\s*)(fastbreak|breakrate|blockreach): OBSERVE$/gm,'$1$2: CORRECT'));
+    await marker('nordguard reload',/configuration reloaded/);
+    const ready=combatJson((await marker(`guardprobe miningprepare GuardFixture ${profile}`,/GUARD_MINING_READY/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'READY');
+    if(profile==='instant')assert(ready.targets.every(target=>target.breakSpeed>=1),'Legal instamine profile is not instant on the server');
+    await sleep(3500);const before=await stats();
+    await mode(action,{targets:ready.targets});
+    await until(()=>state().miningIndex===ready.targets.length,'native mining finished '+profile+' '+action,30000);
+    const input=await activeState(action);assert(input.miningCalls>0,'No native mining input');
+    if(action==='mine-fast')assert(input.enabledModules.includes('fastBreakHack'),'Actual Wurst FastBreak did not enable');
+    await mode('idle');await sleep(1000);
+    const result=combatJson((await marker('guardprobe miningresult GuardFixture',/GUARD_MINING_RESULT/)).replaceAll('GUARD_MINING_','GUARD_COMBAT_'),'RESULT');
+    const after=await stats();measurements.push({kind:'mining',profile,action,ready,input,result,before,after});
+    assert(result.primaryAir===ready.targets.length&&result.acceptedBreaks===ready.targets.length,'Native mining did not produce the expected server blocks');
+    assert(result.belowChanged===0,'Unrequested block below was changed');
+    if(action==='mine')assert(result.cancelledBreaks===0&&after.FASTBREAK===before.FASTBREAK,'Legal mining was rejected or flagged');
+    pass(`actual server mining measured: ${profile}, ${action}, ${result.acceptedBreaks} blocks, ${result.droppedItems} dropped items`);
+    await marker('guardprobe miningclear GuardFixture',/GUARD_MINING_CLEARED/);
+  }
+}
 async function main(){
   for(const port of [25659,25660])await new Promise((resolve,reject)=>{const s=net.connect({host:'127.0.0.1',port});
     s.on('connect',()=>{s.destroy();reject(Error('Test port occupied '+port))});s.on('error',resolve);});
@@ -107,6 +257,9 @@ async function main(){
   fs.writeFileSync(config,original.replace(/(flight|speed|spider|waterwalk|climb|noweb|noslow): OBSERVE/g,'$1: CORRECT')
     .replace('world-replica: false','world-replica: true').replace('  enabled: false','  enabled: true'));
   await marker('nordguard reload',/configuration reloaded/);await proxy.start();
+  if(combatOnly){await combatMatrix(original,config);return;}
+  if(boatsOnly){await boatMatrix(original,config);return;}
+  if(miningOnly){await miningMatrix(original,config);return;}
   await launchClient(false);
   await prepare();await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);
   pass('native server floor support is separate from actual ground contact');
@@ -215,6 +368,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,combatOnly,combatDelays,boatsOnly,miningOnly,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

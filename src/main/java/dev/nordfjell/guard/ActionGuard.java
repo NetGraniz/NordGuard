@@ -18,6 +18,8 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDamageAbortEvent;
 import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
 /** All mutable state belongs to its player's region; only immutable Views cross regions. */
 final class ActionGuard implements Listener {
@@ -28,13 +30,23 @@ final class ActionGuard implements Listener {
         Policy policy;
         int grace, sequence, ticks, spatial;
         long lastTick;
-        final WallWindow wall=new WallWindow();
+        WallWindow wall=new WallWindow();
+        Geometry.Box wallBounds;
+        UUID wallWorld,wallTarget;
+        NativePackets.Handle wallSource;
+        long wallRevision,wallNext;
+        final AttackEvidence.Cursor attack=new AttackEvidence.Cursor();
+        NativePackets.Handle attackSource;
+        int attackTarget=-1;
+        long attackTime;
+        boolean suspectCritical;
         volatile History history;
         Dig dig;
         ActionBudget attacks=new ActionBudget(), breaks=new ActionBudget(), places=new ActionBudget();
         void reset(Policy next,int serial,int delay) {
             policy=next;sequence=serial;grace=delay;history=null;dig=null;
-            wall.reset();
+            wall=new WallWindow(next.combat());wallBounds=null;wallSource=null;
+            attack.valid=false;attackTarget=-1;attackSource=null;suspectCritical=false;
             attacks=new ActionBudget();breaks=new ActionBudget();places=new ActionBudget();
         }
     }
@@ -57,6 +69,21 @@ final class ActionGuard implements Listener {
             s.reset(policy,sequence,s.policy==null?policy.joinGrace():policy.transitionGrace());
         s.lastTick=now;s.ticks++;s.spatial=0;
         s.wall.expire(now);
+        if(!s.wall.present())s.wallBounds=null;
+        if(s.wallBounds!=null) {
+            var source=host.nativeHandle(p);
+            if(source!=s.wallSource||source!=null&&source.terrainRevision()!=s.wallRevision)resetWall(s);
+            else if((source==null||s.wall.pending(now))&&now>=s.wallNext
+                    &&s.spatial<policy.actions().spatialPerTick()) {
+                s.spatial++;
+                var scan=host.scan(p.getWorld(),s.wallBounds,policy.actions());
+                if(!scan.known()||source!=null&&source.terrainRevision()!=s.wallRevision)resetWall(s);
+                else {
+                    s.wall.refresh(s.wallWorld,s.wallTarget,scan.solids(),now);
+                    s.wallNext=now+policy.combat().wallRescanMillis()*1_000_000L;
+                }
+            }
+        }
         if(s.grace>0) s.grace--;
         // Two snapshots, at most ten publications per second. No entity search or per-player task.
         if((s.ticks&1)==0 && (on(policy,Check.REACH)||on(policy,Check.WALLHIT))) {
@@ -98,17 +125,38 @@ final class ActionGuard implements Listener {
     private static boolean fresh(View v,UUID world,long now,long age) {
         return v!=null && v.world.equals(world) && now>=v.time && now-v.time<=age;
     }
-    @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
+    @EventHandler(priority=EventPriority.HIGHEST)
     public void attack(PrePlayerAttackEntityEvent event) {
         long start=System.nanoTime();
         try { checkAttack(event); } finally { host.actionTiming(System.nanoTime()-start); }
     }
+    @EventHandler(priority=EventPriority.MONITOR)
+    public void attackFinished(PrePlayerAttackEntityEvent event) {
+        if(!event.isCancelled())return;
+        State s=states.get(event.getPlayer().getUniqueId());
+        if(s!=null) {s.suspectCritical=false;s.attackTarget=-1;s.attackSource=null;}
+    }
     private void checkAttack(PrePlayerAttackEntityEvent event) {
-        Player p=event.getPlayer();State s=ready(p);if(s==null) return;
-        if(!event.willAttack()) {s.wall.reset();return;}
+        Player p=event.getPlayer();
+        var handle=host.nativeHandle(p);State existing=states.get(p.getUniqueId());
+        if(existing!=null) {
+            existing.suspectCritical=false;existing.attackTarget=-1;existing.attackSource=null;
+            if(handle!=null)handle.attacks.poll(event.getAttacked().getEntityId(),System.nanoTime(),handle.combatRevision(),host.policy().combat(),existing.attack);
+            else existing.attack.valid=false;
+        }
+        State s=ready(p);if(s==null||event.isCancelled()) return;
+        if(!event.willAttack()) {resetWall(s);return;}
         boolean observedWall=false;
         long now=System.nanoTime();var limits=s.policy.actions();
         boolean cancel=rate(p,s,Check.ATTACKRATE,s.attacks,limits.attacksPerSecond(),now);
+        if(!cancel&&handle!=null&&on(s.policy,Check.CRITICALS)&&s.attack.anomalous(s.policy.combat())
+                &&s.spatial<limits.spatialPerTick()) {
+            s.spatial++;
+            // Two environment probes (at most 36 cells each) and the exact support block.
+            if(host.reserveSpatialCells(73)&&criticalSupport(p,s.attack,s.policy.combat())) {
+                s.suspectCritical=true;s.attackTarget=event.getAttacked().getEntityId();s.attackTime=now;s.attackSource=handle;
+            }
+        }
         if(on(s.policy,Check.REACH)||on(s.policy,Check.WALLHIT)) {
             Entity target=event.getAttacked();UUID world=p.getWorld().getUID();
             View latest=null,prior=null;
@@ -136,6 +184,8 @@ final class ActionGuard implements Listener {
                 if(on(s.policy,Check.REACH) && distance>reach+limits.reachMargin())
                     cancel|=violation(p,Check.REACH,"eye-to-hitbox distance exceeds server range");
                 if(on(s.policy,Check.WALLHIT) && distance<=8 && s.spatial<limits.spatialPerTick()) {
+                    var source=host.nativeHandle(p);
+                    long revision=source==null?-1:source.terrainRevision();
                     s.spatial++;
                     var bounds=latest.box.include(eye);
                     if(prior!=null) bounds=include(bounds,prior.box);
@@ -149,15 +199,52 @@ final class ActionGuard implements Listener {
                             && (ownPrior==null || scan.obscured(ownPrior.eye,latest.box)
                             && (prior==null || scan.obscured(ownPrior.eye,prior.box)));
                     if(blocked) {
-                        observedWall=true;
+                        if(source==null||source.active()&&source.terrainRevision()==revision) {
+                        if(s.wallSource!=source||s.wallRevision!=revision)resetWall(s);
+                        observedWall=true;s.wallSource=source;s.wallRevision=revision;
+                        s.wallWorld=world;s.wallTarget=target.getUniqueId();s.wallBounds=bounds;
+                        s.wallNext=now+s.policy.combat().wallRescanMillis()*1_000_000L;
                         if(s.wall.blocked(world,target.getUniqueId(),scan.solids(),now))
                             cancel|=violation(p,Check.WALLHIT,"repeated sight-line observations cross matching full solid cubes");
+                        }
                     }
                 }
             }
         }
-        if(!observedWall)s.wall.reset();
-        if(cancel) { event.setCancelled(true);host.actionCancelled(); }
+        if(!observedWall)resetWall(s);
+        if(cancel) {s.suspectCritical=false;event.setCancelled(true);host.actionCancelled(); }
+    }
+    private static void resetWall(State s) {s.wall.reset();s.wallBounds=null;s.wallSource=null;}
+    private static boolean criticalSupport(Player p,AttackEvidence.Cursor evidence,CombatLimits c) {
+        if(p.isInsideVehicle()||p.isGliding()||p.isRiptiding()||p.isFlying()||p.getAllowFlight()||!p.hasGravity()
+                ||p.isClimbing()||p.isInWater()||!p.getActivePotionEffects().isEmpty()
+                ||Math.abs(attribute(p,Attribute.GRAVITY,.08)-.08)>1E-6||Math.abs(attribute(p,Attribute.JUMP_STRENGTH,.42)-.42)>.001)return false;
+        var at=p.getLocation();var env=EnvironmentProbe.inspect(p,at);
+        if(!env.known()||!env.clear()||env.special()||env.liquid()||env.web()||!Double.isFinite(env.supportY())
+                ||Math.abs(at.getY()-env.supportY())>c.criticalSupportEpsilon()
+                ||Math.abs(at.getY()-evidence.baseY)>c.criticalSupportEpsilon()
+                ||Math.abs(env.supportY()-Math.rint(env.supportY()))>c.criticalSupportEpsilon())return false;
+        var floor=p.getWorld().getBlockAt(at.getBlockX(),(int)Math.floor(at.getY()-c.criticalSupportEpsilon()),at.getBlockZ());
+        var shapes=floor.getCollisionShape().getBoundingBoxes();if(shapes.size()!=1)return false;
+        var b=shapes.iterator().next();
+        if(b.getMinX()!=0||b.getMinY()!=0||b.getMinZ()!=0||b.getMaxX()!=1||b.getMaxY()!=1||b.getMaxZ()!=1)return false;
+        var raised=EnvironmentProbe.inspect(p,at.clone().add(0,c.criticalMaxRise()+.05,0));
+        return raised.known()&&raised.clear()&&!raised.special()&&!raised.liquid()&&!raised.web();
+    }
+    @EventHandler(priority=EventPriority.HIGHEST)
+    public void criticalDamage(EntityDamageByEntityEvent event) {
+        if(event.getCause()!=EntityDamageEvent.DamageCause.ENTITY_ATTACK||!(event.getDamager() instanceof Player p)
+                ||!Bukkit.isOwnedByCurrentRegion(p))return;
+        State s=states.get(p.getUniqueId());if(s==null)return;
+        boolean suspect=s.suspectCritical;s.suspectCritical=false;
+        if(!suspect||event.isCancelled()||!event.isCritical()||s.attackTarget!=event.getEntity().getEntityId()
+                ||s.policy!=host.policy()||!Bukkit.isOwnedByCurrentRegion(event.getEntity()))return;
+        var h=host.nativeHandle(p);long now=System.nanoTime();
+        if(h==null||h!=s.attackSource||h.combatRevision()!=s.attack.epoch||now<s.attackTime
+                ||now-s.attackTime>s.policy.combat().attackEvidenceMillis()*1_000_000L)return;
+        if(violation(p,Check.CRITICALS,"melee critical follows contradictory micro-movement on exact solid support")) {
+            event.setCancelled(true);host.actionCancelled();
+        }
     }
     static Geometry.Box include(Geometry.Box a,Geometry.Box b) {
         return a.include(new Geometry.Point(b.minX(),b.minY(),b.minZ())).include(new Geometry.Point(b.maxX(),b.maxY(),b.maxZ()));

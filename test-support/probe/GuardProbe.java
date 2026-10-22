@@ -20,7 +20,15 @@ public final class GuardProbe extends JavaPlugin implements Listener {
     private boolean suppressFallDistance;
     private org.bukkit.entity.Cow clientTarget;
     private org.bukkit.block.Block clientBlock;
-    @Override public void onEnable() { Bukkit.getPluginManager().registerEvents(this, this); }
+    private CombatProbe combat;
+    private MiningProbe mining;
+    private BoatProbe boats;
+    @Override public void onEnable() {
+        Bukkit.getPluginManager().registerEvents(this, this);
+        combat=new CombatProbe(this);Bukkit.getPluginManager().registerEvents(combat,this);
+        mining=new MiningProbe(this);Bukkit.getPluginManager().registerEvents(mining,this);
+        boats=new BoatProbe(this);
+    }
     @EventHandler public void damage(EntityDamageEvent event) {
         if (event.getEntity() instanceof Player && event.getCause() == EntityDamageEvent.DamageCause.FALL) {
             falls++; if (cancel) event.setCancelled(true);
@@ -36,6 +44,9 @@ public final class GuardProbe extends JavaPlugin implements Listener {
         String action = args[0];
         player.getScheduler().run(this, task -> {
             try {
+                if(combat.command(player,args))return;
+                if(mining.command(player,args))return;
+                if(boats.command(player,args))return;
                 if(action.equals("ordinaryscenario")) {
                     NativeScenario.prepare(player,args[2]);
                     getLogger().info("GUARD_ORDINARY_SCENARIO "+args[2]);
@@ -475,7 +486,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                     } else if(wallPhase[0]==2) {
                         door.setType(Material.STONE,false);
                         actionPass("restored_wall_starts_new_window",!attackEvent(p,close).isCancelled());
-                        wallDeadline[0]=System.nanoTime()+300_000_000L;wallPhase[0]=3;
+                        wallDeadline[0]=System.nanoTime()+1_700_000_000L;wallPhase[0]=3;
                     } else {
                         if(System.nanoTime()<wallDeadline[0])return;
                         actionPass("expired_wall_confirmation_not_reused",!attackEvent(p,close).isCancelled());

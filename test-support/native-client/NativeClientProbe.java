@@ -2,10 +2,15 @@ package dev.nordfjell.guard.fixture;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.client.Minecraft;
 
 /** Isolated test fixture, never a server dependency. Drives native input, not movement packets. */
@@ -14,11 +19,23 @@ public final class NativeClientProbe implements ClientModInitializer {
     private final Path root = Path.of(System.getProperty("nordguard.fixture"));
     private String mode = "idle", module = "", error = "";
     private long id = -1, ticks;
-    private Object hack;
-    private boolean patrol, returning;
+    private final Map<String,Object> hacks = new LinkedHashMap<>();
+    private final JsonObject settings = new JsonObject();
+    private boolean patrol, returning, face = true;
+    private int targetId = -1;
+    private long attackCalls, lastAttackTick;
+    private net.minecraft.core.BlockPos[] miningTargets=new net.minecraft.core.BlockPos[0];
+    private int miningIndex;
+    private long miningCalls;
     private double originX, travel, lastX, lastZ, minY;
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
+        AttackEntityCallback.EVENT.register((player,world,hand,target,hit)->{
+            var mc=Minecraft.getInstance();
+            if(player==mc.player && combat() && target.getId()==targetId && mc.getCurrentServer()!=null
+                    && "127.0.0.1:25660".equals(mc.getCurrentServer().ip))attackCalls++;
+            return net.minecraft.world.InteractionResult.PASS;
+        });
     }
     private void tick(Minecraft mc) {
         try {
@@ -31,31 +48,64 @@ public final class NativeClientProbe implements ClientModInitializer {
                 var next = json.fromJson(Files.readString(control), JsonObject.class);
                 if (next.get("id").getAsLong() != id && (local && mc.player != null || next.get("mode").getAsString().equals("stop"))) {
                     disableHack();
+                    if(mc.gameMode!=null)mc.gameMode.stopDestroyBlock();
+                    mc.options.keyAttack.setDown(false);
                     mode = next.get("mode").getAsString(); id = next.get("id").getAsLong();
                     patrol = next.has("patrol") && next.get("patrol").getAsBoolean();
+                    targetId = next.has("targetId") ? next.get("targetId").getAsInt() : -1;
+                    face = !next.has("face") || next.get("face").getAsBoolean();
+                    attackCalls = 0; lastAttackTick = ticks;
+                    miningIndex=0;miningCalls=0;miningTargets=new net.minecraft.core.BlockPos[0];
+                    if(next.has("targets")) {
+                        var targets=next.getAsJsonArray("targets");
+                        if(targets.size()>32)throw new IllegalArgumentException("Too many mining targets");
+                        miningTargets=new net.minecraft.core.BlockPos[targets.size()];
+                        for(int i=0;i<targets.size();i++) {var target=targets.get(i).getAsJsonObject();
+                            miningTargets[i]=new net.minecraft.core.BlockPos(target.get("x").getAsInt(),target.get("y").getAsInt(),target.get("z").getAsInt());}
+                    }
                     returning = false; originX = mc.player == null ? 0 : mc.player.getX();
                     travel = 0; lastX = originX; lastZ = mc.player == null ? 0 : mc.player.getZ();
                     minY = mc.player == null ? 0 : mc.player.getY();
-                    if (!java.util.Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","stop").contains(mode))
+                    if (!Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","stop",
+                            "attack","attack-away","critical","killaura","aura-critical","crit-jump","boat","boatfly","mine","mine-fast").contains(mode))
                         throw new IllegalArgumentException("Unknown fixture mode");
-                    if (java.util.Set.of("flight","speed","spider","water").contains(mode)) {
-                        if (!local || mc.player == null) throw new IllegalStateException("Wurst requires connected loopback fixture");
-                        module = switch(mode) { case "flight" -> "flightHack"; case "speed" -> "speedHackHack";
+                    if (combat() && targetId < 0) throw new IllegalArgumentException("Combat requires targetId");
+                    if(mode.equals("boatfly")) {
+                        Object hack=getHack("boatFlyHack");slider(hack,"Upward Speed",.3);enableHack("boatFlyHack");
+                    }
+                    if(mode.startsWith("mine")&&miningTargets.length==0)throw new IllegalArgumentException("Mining targets required");
+                    if(mode.equals("mine-fast"))enableHack("fastBreakHack");
+                    if (Set.of("flight","speed","spider","water").contains(mode)) {
+                        String name = switch(mode) { case "flight" -> "flightHack"; case "speed" -> "speedHackHack";
                             case "spider" -> "spiderHack"; default -> "jesusHack"; };
-                        var type = Class.forName("net.wurstclient.WurstClient");
-                        Object wurst = type.getField("INSTANCE").get(null);
-                        if (!(boolean)type.getMethod("isEnabled").invoke(wurst)) type.getMethod("setEnabled",boolean.class).invoke(wurst,true);
-                        Object hax = type.getMethod("getHax").invoke(wurst);
-                        hack = hax.getClass().getField(module).get(hax);
-                        hack.getClass().getMethod("setEnabled", boolean.class).invoke(hack, true);
-                        if (!(boolean)hack.getClass().getMethod("isEnabled").invoke(hack)) throw new IllegalStateException("Wurst module did not enable");
+                        enableHack(name);
+                    }
+                    if (mode.equals("critical") || mode.equals("aura-critical")) {
+                        Object criticals = getHack("criticalsHack");
+                        Object selection = setting(criticals,"Mode");
+                        if (!(boolean)selection.getClass().getMethod("setSelected",String.class).invoke(selection,"Packet"))
+                            throw new IllegalStateException("Criticals Packet setting rejected");
+                        String selected = ((Enum<?>)selection.getClass().getMethod("getSelected").invoke(selection)).name();
+                        if (!selected.equals("PACKET")) throw new IllegalStateException("Criticals is not Packet");
+                        settings.addProperty("criticalMode",selected);
+                        enableHack("criticalsHack");
+                    }
+                    if (mode.equals("killaura") || mode.equals("aura-critical")) {
+                        Object aura = getHack("killauraHack");
+                        slider(aura,"Range",3); slider(aura,"Speed",1); slider(aura,"Speed randomization",0);
+                        Object los = setting(aura,"Check line of sight");
+                        los.getClass().getMethod("setChecked",boolean.class).invoke(los,false);
+                        boolean checked = (boolean)los.getClass().getMethod("isChecked").invoke(los);
+                        if (checked) throw new IllegalStateException("Killaura LOS remained enabled");
+                        settings.addProperty("Check line of sight",checked);
+                        enableHack("killauraHack");
                     }
                 }
             }
-            boolean forward = local && !mode.equals("idle") && !mode.equals("stop") && !mode.equals("flight");
+            boolean forward = local && Set.of("walk","sprint","jump","sneak","speed","spider","water").contains(mode);
             mc.options.keyUp.setDown(forward);
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
-            mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight")));
+            mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight") || mode.equals("crit-jump")||mode.equals("boatfly")));
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
             if (mc.player != null && local) {
                 travel += Math.hypot(mc.player.getX()-lastX,mc.player.getZ()-lastZ);
@@ -65,20 +115,62 @@ public final class NativeClientProbe implements ClientModInitializer {
                     if (mc.player.getX() >= originX + 12) returning = true;
                     else if (mc.player.getX() <= originX + 1) returning = false;
                 }
-                mc.player.setYRot(returning ? 90 : -90);
+                if (combat()) {
+                    var target = mc.level.getEntity(targetId);
+                    if (target == null || !target.isAlive()) throw new IllegalStateException("Combat target missing/dead: " + targetId);
+                    double dx = target.getX()-mc.player.getX(), dz = target.getZ()-mc.player.getZ();
+                    double dy = target.getBoundingBox().getCenter().y()-mc.player.getEyeY();
+                    float yaw = (float)Math.toDegrees(Math.atan2(dz,dx))-90;
+                    float pitch = (float)-Math.toDegrees(Math.atan2(dy,Math.hypot(dx,dz)));
+                    boolean away = !face || mode.equals("attack-away");
+                    mc.player.setYRot(yaw+(away ? 180 : 0)); mc.player.setXRot(away ? 0 : pitch);
+                    boolean manual = Set.of("attack","attack-away","critical","crit-jump").contains(mode);
+                    boolean descending = !mc.player.onGround() && mc.player.getDeltaMovement().y()<-.01 && mc.player.fallDistance>0;
+                    if (manual && ticks-lastAttackTick>=20 && mc.player.getAttackStrengthScale(0)>=.99f
+                            && (!mode.equals("crit-jump") || descending)) {
+                        mc.gameMode.attack(mc.player,target);
+                        mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                        lastAttackTick=ticks;
+                    }
+                } else if(mode.startsWith("mine")) {
+                    if(miningIndex<miningTargets.length) {
+                        var target=miningTargets[miningIndex];
+                        if(mc.level.getBlockState(target).isAir())miningIndex++;
+                        else {
+                            var center=net.minecraft.world.phys.Vec3.atCenterOf(target);
+                            double dx=center.x-mc.player.getX(),dz=center.z-mc.player.getZ(),dy=center.y-mc.player.getEyeY();
+                            if(dx*dx+dy*dy+dz*dz>25)throw new IllegalStateException("Mining target outside fixture reach");
+                            mc.player.setYRot((float)Math.toDegrees(Math.atan2(dz,dx))-90);
+                            mc.player.setXRot((float)-Math.toDegrees(Math.atan2(dy,Math.hypot(dx,dz))));
+                            mc.gameMode.continueDestroyBlock(target,net.minecraft.core.Direction.UP);miningCalls++;
+                            mc.player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+                        }
+                    }
+                } else mc.player.setYRot(returning ? 90 : -90);
             }
             if (ticks % 2 == 0 || mode.equals("stop")) {
                 var state = new JsonObject();
                 state.addProperty("id",id); state.addProperty("mode",mode); state.addProperty("ticks",ticks);
                 state.addProperty("connected",mc.player != null && local && !mode.equals("stop")); state.addProperty("module",module);
                 state.addProperty("error",error);
-                state.addProperty("moduleEnabled",hack != null && (boolean)hack.getClass().getMethod("isEnabled").invoke(hack));
+                var enabled = new JsonArray(); boolean allEnabled = !hacks.isEmpty();
+                for (var entry:hacks.entrySet()) {
+                    boolean active = (boolean)entry.getValue().getClass().getMethod("isEnabled").invoke(entry.getValue());
+                    allEnabled &= active;if(active)enabled.add(entry.getKey());
+                }
+                state.addProperty("moduleEnabled",allEnabled);state.add("enabledModules",enabled);
+                state.add("settings",settings.deepCopy());state.addProperty("targetId",targetId);
+                state.addProperty("attackCalls",attackCalls);state.addProperty("face",face);
+                state.addProperty("miningIndex",miningIndex);state.addProperty("miningTotal",miningTargets.length);state.addProperty("miningCalls",miningCalls);
                 state.addProperty("screen",mc.gui.screen()==null?"none":mc.gui.screen().getClass().getSimpleName());
                 state.addProperty("patrol",patrol);
                 state.addProperty("travel",travel);
                 state.addProperty("minY",minY);
                 if (mc.player != null && local) {
                     state.addProperty("x",mc.player.getX()); state.addProperty("y",mc.player.getY()); state.addProperty("z",mc.player.getZ());
+                    state.addProperty("onGround",mc.player.onGround());state.addProperty("fallDistance",mc.player.fallDistance);
+                    state.addProperty("riding",mc.player.isPassenger());
+                    if(mc.player.getVehicle()!=null) {state.addProperty("vehicleId",mc.player.getVehicle().getId());state.addProperty("vehicleY",mc.player.getVehicle().getY());}
                 }
                 Files.writeString(root.resolve("state.json"),json.toJson(state));
             }
@@ -86,11 +178,38 @@ public final class NativeClientProbe implements ClientModInitializer {
         } catch (Exception failure) {
             error = failure.getClass().getSimpleName()+": "+failure.getMessage();
             mode = "idle";
+            mc.options.keyAttack.setDown(false);if(mc.gameMode!=null)mc.gameMode.stopDestroyBlock();
             try { disableHack(); Files.writeString(root.resolve("failure.txt"),error); } catch(Exception ignored) {}
         }
     }
+    private boolean combat() {return Set.of("attack","attack-away","critical","killaura","aura-critical","crit-jump").contains(mode);}
+    private Object getHack(String name) throws ReflectiveOperationException {
+        var type = Class.forName("net.wurstclient.WurstClient");Object wurst=type.getField("INSTANCE").get(null);
+        if (!(boolean)type.getMethod("isEnabled").invoke(wurst)) type.getMethod("setEnabled",boolean.class).invoke(wurst,true);
+        Object hax=type.getMethod("getHax").invoke(wurst);return hax.getClass().getField(name).get(hax);
+    }
+    private void enableHack(String name) throws ReflectiveOperationException {
+        Object hack=getHack(name);hacks.put(name,hack);
+        hack.getClass().getMethod("setEnabled",boolean.class).invoke(hack,true);
+        if (!(boolean)hack.getClass().getMethod("isEnabled").invoke(hack)) throw new IllegalStateException("Wurst module did not enable: "+name);
+        module=String.join(",",hacks.keySet());
+    }
+    private Object setting(Object hack,String name) throws ReflectiveOperationException {
+        var values=(Map<?,?>)hack.getClass().getMethod("getSettings").invoke(hack);
+        for(Object value:values.values()) if(name.equals(value.getClass().getMethod("getName").invoke(value)))return value;
+        throw new IllegalStateException("Missing Wurst setting: "+name);
+    }
+    private void slider(Object hack,String name,double requested) throws ReflectiveOperationException {
+        Object value=setting(hack,name);value.getClass().getMethod("setValue",double.class).invoke(value,requested);
+        double actual=(double)value.getClass().getMethod("getValue").invoke(value);
+        if(Double.compare(actual,requested)!=0)throw new IllegalStateException("Wurst setting readback failed: "+name);
+        settings.addProperty(name,actual);
+    }
     private void disableHack() throws ReflectiveOperationException {
-        if (hack != null) hack.getClass().getMethod("setEnabled",boolean.class).invoke(hack,false);
-        hack = null; module = "";
+        ReflectiveOperationException failure=null;
+        for(Object hack:hacks.values())try {hack.getClass().getMethod("setEnabled",boolean.class).invoke(hack,false);}
+        catch(ReflectiveOperationException error) {if(failure==null)failure=error;}
+        hacks.clear();module="";settings.keySet().clear();
+        if(failure!=null)throw failure;
     }
 }

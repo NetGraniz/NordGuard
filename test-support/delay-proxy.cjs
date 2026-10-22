@@ -3,10 +3,13 @@ const net = require('node:net');
 const {performance}=require('node:perf_hooks');
 // Test-only FIFO TCP relay. Delays actual traffic in both directions, never a production listener.
 class DelayProxy {
-  constructor({noDelay=false}={}) { this.noDelay=noDelay; this.delay = 0; this.jitter = false; this.clients = new Set(); this.timers = new Set(); }
+  constructor({noDelay=false,upstreamPort=25659,listenPort=25660}={}) {
+    this.noDelay=noDelay;this.upstreamPort=upstreamPort;this.listenPort=listenPort;
+    this.delay = 0; this.jitter = false; this.clients = new Set(); this.timers = new Set();
+  }
   async start() {
     this.server = net.createServer(downstream => {
-      const upstream = net.connect({host:'127.0.0.1',port:25659});
+      const upstream = net.connect({host:'127.0.0.1',port:this.upstreamPort});
       downstream.setNoDelay(this.noDelay);upstream.setNoDelay(this.noDelay);
       this.clients.add(downstream); this.clients.add(upstream);
       const forward = (from, to) => {
@@ -48,7 +51,7 @@ class DelayProxy {
         s.on('close',()=>{this.clients.delete(s);downstream.destroy();upstream.destroy()});
       }
     });
-    await new Promise((resolve,reject)=>{this.server.once('error',reject);this.server.listen(25660,'127.0.0.1',resolve)});
+    await new Promise((resolve,reject)=>{this.server.once('error',reject);this.server.listen(this.listenPort,'127.0.0.1',resolve)});
   }
   close() {
     for(const timer of this.timers) clearTimeout(timer);

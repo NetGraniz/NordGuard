@@ -50,6 +50,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
     private final SpatialBudget worldCopyBudget=new SpatialBudget(), worldDecodeBudget=new SpatialBudget(), worldMaterializeBudget=new SpatialBudget();
     private NativeBlocks blockGeometry;
     private ActionGuard actions;
+    private BoatGuard boats;
     private final SpatialBudget spatialBudget=new SpatialBudget();
     private final SpatialBudget alertBudget=new SpatialBudget();
     private final LongAdder spatialDeferred=new LongAdder(), spatialCells=new LongAdder();
@@ -58,12 +59,20 @@ public final class NordGuard extends JavaPlugin implements Listener {
     void actionTiming(long nanos) { actionCount.increment();actionNanos.add(nanos);slowestAction.accumulateAndGet(nanos,Math::max); }
     Policy policy() { return policy; }
     int nativeSequence(Player player) { return nativeTeleport.sequence(player); }
+    NativePackets.Handle nativeHandle(Player p) {
+        Session s=sessions.get(p.getUniqueId());
+        return s!=null&&s.packetHandle!=null&&s.packetHandle.active()?s.packetHandle:null;
+    }
     boolean actionViolation(Player player,Check check,String detail) {
         Session session=sessions.get(player.getUniqueId());
         if(session==null || policy.modes().get(check)==Policy.Mode.OFF) return false;
         report(session,check,detail);return policy.modes().get(check)==Policy.Mode.CORRECT;
     }
     void actionCancelled() { corrections.increment(); }
+    boolean reserveSpatialCells(int count) {
+        if(!spatialBudget.acquire(System.nanoTime(),count,policy.actions().spatialBlocksPerSecond())) {spatialDeferred.increment();return false;}
+        spatialCells.add(count);return true;
+    }
     SolidProbe.Scan scan(org.bukkit.World world,Geometry.Box bounds,ActionLimits limits) {
         var result=SolidProbe.scan(world,bounds,limits.maxBlocks(),count->{
             if(!spatialBudget.acquire(System.nanoTime(),count,limits.spatialBlocksPerSecond())) return false;
@@ -76,6 +85,17 @@ public final class NordGuard extends JavaPlugin implements Listener {
     @Override public void onEnable() {
         shuttingDown=false;
         saveDefaultConfig();
+        try(var defaults=getResource("config.yml")) {
+            var migration=ConfigMigration.merge(getDataFolder().toPath().resolve("config.yml"),defaults);
+            if(migration.changed())getLogger().info("Added "+migration.addedKeys()
+                    +" missing configuration keys; previous file: "+migration.backup().getFileName());
+        } catch(Exception error) {
+            // YAML parser exceptions may contain user values. Do not print their contents.
+            getLogger().severe("Configuration migration refused ("+error.getClass().getSimpleName()
+                    +"); existing configuration retained. Check config.yml before restarting.");
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
         try {
             policy = readPolicy();
             if (!Bukkit.getMinecraftVersion().equals("26.2"))
@@ -99,6 +119,8 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Bukkit.getPluginManager().registerEvents(this, this);
         actions=new ActionGuard(this);
         Bukkit.getPluginManager().registerEvents(actions,this);
+        boats=new BoatGuard(this);
+        Bukkit.getPluginManager().registerEvents(boats,this);
         for (Player player : Bukkit.getOnlinePlayers()) player.getScheduler().run(this, task -> attach(player), null);
         getLogger().info("NordGuard " + getDescription().getVersion() + " enabled; modes=" + policy.modes() + "; no bans or external services");
     }
@@ -107,6 +129,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         sessions.values().forEach(Session::stop);
         sessions.clear(); subscribers.clear();
         if(actions!=null) actions.clear();
+        if(boats!=null) boats.clear();
     }
     private Policy readPolicy() throws Exception {
         var yaml = new YamlConfiguration();
@@ -129,7 +152,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         // Install before the first scheduled sample so initial chunk packets can be observed.
         session.observePackets(System.nanoTime());
         session.task = player.getScheduler().runAtFixedRate(this, ignored -> session.tick(),
-                () -> {session.stop();if(sessions.remove(player.getUniqueId(),session)&&actions!=null) actions.remove(player);}, 1, 1);
+                () -> {session.stop();if(sessions.remove(player.getUniqueId(),session)) {if(actions!=null)actions.remove(player);if(boats!=null)boats.remove(player);}}, 1, 1);
         if (session.stopped || shuttingDown) session.stop();
         if (session.task == null) { session.stop(); sessions.remove(player.getUniqueId(), session); }
     }
@@ -149,6 +172,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         if (session != null) session.stop();
         subscribers.remove(event.getPlayer().getUniqueId());
         if(actions!=null) actions.remove(event.getPlayer());
+        if(boats!=null) boats.remove(event.getPlayer());
     }
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void teleport(PlayerTeleportEvent event) {
@@ -367,6 +391,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 if (stopped || shuttingDown) { closePackets(); return; }
             }
             long started = System.nanoTime();
+            packetHandle.evidenceNanos=policy.combat().attackEvidenceMillis()*1_000_000L;
             PredictionSettings settings=predictionSettings;
             if(settings!=seenPrediction) {seenPrediction=settings;prediction=null;}
             if(settings.enabled() && worldSync!=null && prediction==null) {
@@ -449,6 +474,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if (seenTeleportSequence && sequence != teleportSequence && !teleporting) grace(player);
             teleportSequence = sequence; seenTeleportSequence = true;
             actions.tick(player,sequence,now);
+            boats.tick(player,now,sequence,receivedMovement);
             Policy current = policy;
             if (seenPolicy != current) { seenPolicy = current; suspend(current.joinGrace()); }
             long gap = now - lastNanos; lastNanos = now;

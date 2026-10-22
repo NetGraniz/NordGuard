@@ -18,6 +18,36 @@ checks:
   fastbreak: OBSERVE
   breakrate: OBSERVE
   placerate: OBSERVE
+  # Existing configs without this key inherit checks.reach; explicit modes win.
+  criticals: OBSERVE
+  # Existing configs without this key inherit checks.flight; explicit modes win.
+  boatflight: OBSERVE
+vehicle:
+  violation-buffer: 6
+  air-grace-ticks: 12
+  # Player-carrying boats can receive a native 2.7-block/tick bubble launch.
+  bubble-grace-ticks: 120
+  max-sample-gap-ms: 250
+  max-probe-blocks: 64
+  correction-cooldown-ticks: 10
+  anchor-max-age-seconds: 15
+  max-setback-distance: 32
+  rise-margin: 0.35
+combat:
+  # Minimum known-wall observation span, and separately its retention between attacks.
+  wall-confirm-ms: 200
+  wall-retention-ms: 1500
+  # Only a pending wall gets bounded rescans, inside the existing shared scan budget.
+  wall-rescan-ms: 100
+  # Maximum native attack-token age/history; client tick counts never grant time.
+  attack-evidence-ms: 250
+  criticals:
+    # Strict Packet-Criticals contradiction only; not a ban on legitimate small jumps.
+    min-packet-rise: 0.01
+    max-packet-rise: 0.08
+    # Exact floor contact, not the movement probe's 0.06-block ground margin.
+    support-epsilon: 0.00001
+    max-horizontal-span: 0.02
 actions:
   reach-margin: 0.35
   history-ms: 200
@@ -42,9 +72,9 @@ movement:
 alerts:
   cooldown-seconds: 10
   console: true
-# Bounded 26.2 packet diagnostics; no packet-based punishment in this build.
+# Bounded 26.2 packet observer. Strict Packet-Criticals evidence requires this.
 # 2 Ping/Pong barriers per second, 256 inbox entries, 64 movement history entries.
-# Turn off to retain the event/tick checks without the channel observer.
+# Turn off to retain event/tick checks, but disable strict Packet-Criticals evidence.
 packets:
   enabled: true
   # Experimental outbound block cache; not used for corrections. Leave off for normal use.

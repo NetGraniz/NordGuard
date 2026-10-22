@@ -6,10 +6,10 @@ test('jitter preserves every byte in both directions',{timeout:60000},async()=>{
   const expected=Buffer.alloc(1500*4);for(let i=0;i<1500;i++)expected.writeUInt32BE(i,i*4);
   const received=[],echoed=[];let count=0;
   const server=net.createServer(socket=>socket.on('data',data=>{received.push(data);socket.write(data);}));
-  const proxy=new DelayProxy({noDelay:true});proxy.delay=30;proxy.jitter=true;let client;
-  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(25659,'127.0.0.1',resolve);});
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  const proxy=new DelayProxy({noDelay:true,upstreamPort:server.address().port,listenPort:0});proxy.delay=30;proxy.jitter=true;let client;
   try {
-    await proxy.start();client=net.connect({host:'127.0.0.1',port:25660});client.setNoDelay(true);
+    await proxy.start();client=net.connect({host:'127.0.0.1',port:proxy.server.address().port});client.setNoDelay(true);
     client.on('data',data=>{echoed.push(data);count+=data.length;});
     await new Promise((resolve,reject)=>{client.once('connect',resolve);client.once('error',reject);});
     for(let i=0;i<1500;i++){client.write(expected.subarray(i*4,i*4+4));await sleep(1);}

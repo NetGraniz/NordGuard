@@ -31,7 +31,8 @@ final class NativePackets {
         default void world(WorldSnapshot.Update update) {}
     }
     private final NativeWorld world;
-    private final Class<?> move, tickEnd, input, teleport, teleportAck, velocity, pong, bundle, ping;
+    private final Class<?> move, tickEnd, input, teleport, teleportAck, velocity, pong, bundle, ping, attack;
+    private final MethodHandle attackTarget;
     private final MethodHandle handle, listenerConnection, networkConnection, channel;
     private final MethodHandle hasPos, hasRot, onGround, collision, x, y, z, yaw, pitch;
     private final MethodHandle inputValue;
@@ -58,6 +59,7 @@ final class NativePackets {
         networkConnection=field(listener,"connection");
         channel=field(connection,"channel");
         move=type(GAME+"ServerboundMovePlayerPacket");
+        attack=type(GAME+"ServerboundAttackPacket");attackTarget=primitiveMethod(attack,"entityId",int.class);
         tickEnd=type(GAME+"ServerboundClientTickEndPacket");
         input=type(GAME+"ServerboundPlayerInputPacket");
         teleport=type(GAME+"ClientboundPlayerPositionPacket");
@@ -150,6 +152,9 @@ final class NativePackets {
     final class Handle implements AutoCloseable {
         private final Channel transport;
         private final ProbeDispatch probeDispatch=new ProbeDispatch();
+        final AttackEvidence attacks=new AttackEvidence();
+        private volatile long terrainRevision,combatRevision;
+        volatile long evidenceNanos=250_000_000L;
         private final int entityId;
         private final Sink sink;
         private final java.util.function.IntPredicate copyBudget;
@@ -179,6 +184,8 @@ final class NativePackets {
             if(cx!=centerX||cz!=centerZ) {centerX=cx;centerZ=cz;if(worldEnabled)sink.world(new WorldSnapshot.Retain(cx,cz));}
         }
         boolean active() { return installed && !closing && !failed; }
+        long terrainRevision() {return terrainRevision;}
+        long combatRevision() {return combatRevision;}
         private void emit(int kind,int id,int flags,double x,double y,double z,float yaw,float pitch) {
             sink.event(kind,System.nanoTime(),id,flags,x,y,z,yaw,pitch);
         }
@@ -253,10 +260,12 @@ final class NativePackets {
             int flags=((boolean)hasPos.invokeExact(packet)?1:0)|((boolean)hasRot.invokeExact(packet)?2:0)
                     |((boolean)onGround.invokeExact(packet)?4:0)|((boolean)collision.invokeExact(packet)?8:0);
             double px=(double)x.invokeExact(packet,Double.NaN),pz=(double)z.invokeExact(packet,Double.NaN);
+            if((flags&1)!=0)h.attacks.move(System.nanoTime(),px,(double)y.invokeExact(packet,Double.NaN),pz,(flags&4)!=0);
             if((flags&1)!=0)h.center(px,pz);
             h.emit(MOVE,0,flags,px,(double)y.invokeExact(packet,Double.NaN),pz,
                     (float)yaw.invokeExact(packet,Float.NaN),(float)pitch.invokeExact(packet,Float.NaN));
-        } else if(tickEnd.isInstance(packet)) h.marker(TICK_END,0);
+        } else if(attack.isInstance(packet)) h.attacks.attack((int)attackTarget.invokeExact(packet),System.nanoTime(),h.combatRevision,h.evidenceNanos);
+        else if(tickEnd.isInstance(packet)) h.marker(TICK_END,0);
         else if(input.isInstance(packet)) {
             Object keys=inputValue.invokeExact(packet);int flags=0;
             for(int i=0;i<inputBits.length;i++) if((boolean)inputBits[i].invokeExact(keys)) flags|=1<<i;
@@ -269,6 +278,7 @@ final class NativePackets {
             Iterable<?> packets=(Iterable<?>)(Object)subPackets.invokeExact(packet);int count=0;
             for(Object child:packets) {
                 if(++count>64 || bundle.isInstance(child)) {
+                    h.terrainRevision++;h.combatRevision++;h.attacks.resetMoves();
                     if(h.worldEnabled)h.sink.world(new WorldSnapshot.Invalidation());
                     h.marker(WORLD_CHANGE,0);h.marker(CONTEXT_CHANGE,0);break;
                 }
@@ -277,6 +287,13 @@ final class NativePackets {
         } else outboundSingle(h,packet);
     }
     private void outboundSingle(Handle h,Object packet) throws Throwable {
+        if(worldChanges.contains(packet.getClass()))h.terrainRevision++;
+        MethodHandle contextId=selfContext.get(packet.getClass());
+        boolean ownContext=contextId!=null && (int)contextId.invokeExact(packet)==h.entityId;
+        boolean ownVelocity=velocity.isInstance(packet)&&(int)velocityId.invokeExact(packet)==h.entityId;
+        if(teleport.isInstance(packet)||contextChanges.contains(packet.getClass())||ownContext||ownVelocity) {
+            h.combatRevision++;h.attacks.resetMoves();
+        }
         WorldSnapshot.Update update=h.worldEnabled?world.read(packet,h.copyBudget,h.chunkInterest):null;
         if(update!=null) {
             h.marker(WORLD_CHANGE,0);

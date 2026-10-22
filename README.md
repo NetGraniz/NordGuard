@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.2 fixes recognition of coalesced landings during repeated sprint-jumps and a one-block descent. Jump timing uses elapsed owner ticks; takeoff inference needs a nearby server-observed floor. Repaying old speed debt no longer adds fresh speeding evidence. Successful setbacks retain checked movement history, and burst debt still prevents unsafe anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This release does not claim complete cheat coverage or validated 600-player capacity.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. The 0.5.3 candidate adds attack-scoped Packet Criticals evidence, separates WallHit confirmation from retention between attacks, and introduces a separate dry-air boat model. It keeps the sprint-jump ledge fixes from 0.5.2. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. Complete cheat coverage and sustained 600-player capacity have not been validated. Ordinary packet prediction remains opt-in and observation-only.
 
 The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases on each tested platform; Folia also passes 11 extended ordinary scenarios, including a two-minute patrol. Initial predictor seeds and accepted frames are now nonzero. These are narrow checks, not universal correction safety or 600-player capacity. Stage 4's broader validation remains open. Keep movement checks in OBSERVE. Earlier relay results are qualified in [TESTING.md](TESTING.md), alongside current evidence and remaining gates.
 
@@ -19,7 +19,9 @@ The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases o
 | NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. |
 | NoClip | Near-horizontal sampled paths crossing a full solid cube, with clear endpoints. Only bodies at least 1.5 blocks high, displacement above 0.8 and below 4 blocks, and vertical change below 0.05 are checked. |
 | Reach | Eye-to-target-box distance beyond the server range, including the actual ATTACK_RANGE weapon component. Recent player snapshots provide a small lag allowance. |
-| WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching world, target and exact geometry must be observed repeatedly over 200 ms, with no gap above 200 ms. This is sampled visibility, not continuous block history. |
+| WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching world, target and exact geometry require a 200 ms observation span and remain eligible for up to 1,500 ms between attacks. Unknown or changed geometry resets confirmation. The first settling hit may land. |
+| Criticals | Narrow native Packet-Criticals contradiction on exact full-block floor support. Requires the packet observer, matching attack order and an actual melee critical damage event. Unknown contexts defer. Confirmed invalid hits are cancelled, not rescaled. |
+| BoatFlight | Separate conservative dry-air fall envelope for the controlling Survival player in an ordinary boat. Bubble columns, leashes and unknown terrain defer checks. Correction moves the root boat with its passengers; horizontal boat speed is outside this check. |
 | AttackRate | A configurable action budget; 40 attacks/second and one second of burst credit by default. Fast legal clicking is not classified as Kill Aura. |
 | BlockReach | Breaking or placing beyond the server block-interaction attribute plus a margin. |
 | FastBreak | Premature destruction with an observed mining start. Uses native break speed, the 26.2 early-stop threshold and wall-clock lag compensation. |
@@ -35,7 +37,7 @@ The native teleport bridge reads the server-issued teleport sequence on the play
 
 Requires Java 25. Download a release from [GitHub Releases](https://github.com/NetGraniz/NordGuard/releases). Put one release JAR in `plugins` while the server is stopped. No client mod, database, packet library or external service is required. Configuration: `plugins/NordGuard/config.yml`. Existing configurations retain their selected modes; updating the JAR does not reset CORRECT to OBSERVE.
 
-All 17 checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
+All 19 checks default to `OBSERVE`. There are no automatic bans or kicks. Test legitimate gameplay on the same platform before enabling corrections.
 
 ```yaml
 checks:
@@ -56,11 +58,42 @@ checks:
   fastbreak: OBSERVE
   breakrate: OBSERVE
   placerate: OBSERVE
+  criticals: OBSERVE
+  boatflight: OBSERVE
 ```
 
 Each mode accepts `OFF`, `OBSERVE` or `CORRECT`. Observation records evidence without changing position, health or event cancellation. Correction permits movement setbacks, native NoFall damage or cancellation of the offending attack/break/place event. A setback needs a previous clean supported position that remains loaded, region-owned and clear; otherwise the plugin reports without forcing a teleport. Existing cancellations from other plugins are respected.
 
-### Action limits
+### Tuning and configuration updates
+
+Edit `plugins/NordGuard/config.yml`, then run `nordguard reload` from the console. Set one check to `OBSERVE` while investigating a false positive; this records evidence without applying that check's corrections. `OFF` disables it. Use `nordguard status` to compare counters before and after reproducing the same action. A report is evidence to investigate, not proof that a player installed a cheat.
+
+Tune one value at a time and keep a copy of the last working file. Test sprint-jumping down a block, ordinary critical hits, mining with your server's tools and the relevant special terrain before switching a check to `CORRECT`. A few quiet hours do not validate every mechanic, and threshold changes do not replace a fix for an unsupported movement case.
+
+On startup, missing bundled keys are added without replacing existing values or unknown entries. Before writing, NordGuard validates both policies and makes an exact-byte backup named `config.yml.backup-<unique-id>.yml` in its data folder. A conflicting structure, invalid policy or detected concurrent edit stops the migration instead of overwriting the file. Reload never writes the configuration. Invalid reloads keep the running policy.
+
+For an older configuration, a missing `checks.criticals` inherits the existing `checks.reach` mode; a missing `checks.boatflight` inherits `checks.flight`. An explicit mode always wins. New installations start in `OBSERVE`. Write `'OFF'` in quotes for clarity; YAML's boolean `false` is also read as OFF, but boolean `true` is not a check mode.
+
+```yaml
+combat:
+  wall-confirm-ms: 200
+  wall-retention-ms: 1500
+  wall-rescan-ms: 100
+  attack-evidence-ms: 250
+  criticals:
+    min-packet-rise: 0.01
+    max-packet-rise: 0.08
+    support-epsilon: 0.00001
+    max-horizontal-span: 0.02
+```
+
+`wall-confirm-ms` is the observation span needed to confirm matching full-block obstruction. `wall-retention-ms` keeps that observation between attacks; it is not extra reach or permission to attack through a wall. Owner rescans run no more frequently than `wall-rescan-ms`, within the per-player scan count and shared spatial budget. A changed or unknown scene starts a new observation window. The first settling hit can still land.
+
+Strict Criticals evidence requires `packets.enabled: true`. `attack-evidence-ms` bounds both the native attack token's age and movement history. The rise and horizontal-span values limit a narrow contradiction on exact, full-block floor support; they are not a general maximum jump height. Slabs, low ceilings, effects, impulses and uncertain environments defer this check. Do not widen its scope merely to raise the detection count. Confirmed invalid critical attacks are cancelled as whole hits; legitimate damage is not divided or rewritten.
+
+Movement margins, evidence buffer, grace periods, sample gaps, action rates, scan budgets and alert cooldowns remain configurable in the same file. Queue capacities and physics constants are implementation safety limits, not tuning controls. Raising spatial or prediction budgets increases permitted work; it does not make the detector more accurate by itself.
+
+### Action limit values
 
 ```yaml
 actions:
@@ -90,7 +123,7 @@ Unchanged owner ticks repay speed debt first, then retain unused allowance up to
 
 Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
 
-Existing schema-version 1 configurations remain readable. Missing modes default to OBSERVE and missing action limits use the defaults above; the plugin does not silently enable corrections or overwrite your settings. Add new entries explicitly when selecting their modes. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
+Existing schema-version 1 configurations remain readable. Missing action limits use the defaults above. Missing Criticals/BoatFlight modes inherit the related older mode as described above; other missing modes use OBSERVE. Existing explicit values are preserved. The meaning of `horizontal-margin` changed in 0.2.0; retest your speed settings before enabling corrections.
 
 NoSlow starts after ten server-observed item-use ticks and six consecutive supported movement samples. It respects a custom USE_EFFECTS speed multiplier, skips airborne movement and defers during accepted velocity impulses. Owner ticks repay a separate bounded slowdown debt/reserve; ending use clears spare credit but does not forgive unpaid excess. Synthetic use/release regressions are covered, not every native item-use packet ordering. The component and its 0.2 fallback were checked against the tested 26.2 runtime.
 
@@ -128,7 +161,7 @@ Two Ping/Pong barriers per second measure client processing of the preceding out
 
 The timeline observes movement variants, persistent input, client TickEnd, self velocity, teleports and matching teleport confirmations. Outbound chunk/block changes, self attributes/effects/metadata, abilities and other transitions invalidate confidence. Nested or oversized bundles also invalidate it. Relative teleport coordinates are not treated as absolute positions. TickEnd is an untrusted claim; an independent monotonic rate budget records excess without awarding time from packet count. Its burst diagnostics are not grounds for correction or bans.
 
-An acknowledged stream prefix does **not** prove that a modified client obeyed a packet. Pong is not authenticated. The opt-in world journal tracks that prefix conservatively; it does not reconstruct every possible old/new client-world branch or provide arbitrary historical replay. No packet-based correction is enabled in this build. Reach history and existing movement checks retain their previous behavior; this timeline does not silently replace them with complete latency compensation.
+An acknowledged stream prefix does **not** prove that a modified client obeyed a packet. Pong is not authenticated. The opt-in world journal tracks that prefix conservatively; it does not reconstruct every possible old/new client-world branch or provide arbitrary historical replay. Strict Criticals uses a separate bounded FIFO of native attack evidence, consumed by the owner-thread attack event. It does not use Pong as proof of honest movement. Reach history and existing movement checks are not replaced with complete latency compensation.
 
 `OrdinaryPhysics` implements the verified 26.2 arithmetic for ordinary digital input, sprint jumps, movement attributes, friction and air drag. `CollisionPhysics` clips bounded AABB scenes and handles step-up. `OrdinaryPredictor` keeps calculated position and velocity; it never resets velocity from an unchecked observed move. It tries 18 input variants per state and retains at most two plausible states (36 trials), because walking and jumping onto a slab can produce the same coordinates with different grounded states. Excess ambiguity, unsupported collisions or missing scene data defer the calculation rather than count a violation. The kernels now have an optional runtime observation path, but **no new enforcement**. Fluids, climbing, vehicles, entity pushes, world borders, crouch-edge behavior and special movement remain outside their contract.
 

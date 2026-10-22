@@ -46,7 +46,8 @@ async function command(line,re) {
     await command('nordguard inspect ReleaseFixture',/Barrier RTT ms=\d+, acks=[1-9]\d*/);
     await command('nordguard reload',/configuration reloaded/);
     const config=fs.readFileSync(path.join(root,'plugins/NordGuard/config.yml'),'utf8');
-    assert.equal((config.match(/: OBSERVE/g)||[]).length,17);
+    const bundled=fs.readFileSync(path.join(project,'src/main/resources/config.yml'),'utf8');
+    assert.equal((config.match(/: OBSERVE/g)||[]).length,(bundled.match(/: OBSERVE/g)||[]).length);
     assert(!config.includes(': CORRECT'));assert(/corrections=0/.test(output));
     console.log(platform+' '+version+' startup/client/native Ping-Pong/reload/defaults PASS');
   } catch(e) {error=e.stack;process.exitCode=1;console.error(error);}
