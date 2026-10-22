@@ -61,7 +61,7 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                                     +" momentum="+momentum.getDouble(movement)+" dy="+dy.getDouble(movement)
                                     +" frame="+frame.get(movement)
                                     +" debt="+debt.getDouble(movement)+" score="+((double[])scores.get(movement))[Check.SPEED.ordinal()]);
-                            if(++count[0]>=100)trace.cancel();
+                            if(++count[0]>=300)trace.cancel();
                         } catch(Exception failure){trace.cancel();getLogger().log(java.util.logging.Level.SEVERE,"GUARD_PROBE_FAIL",failure);}
                     },null,1,1);
                     getLogger().info("GUARD_TRACE_STARTED");

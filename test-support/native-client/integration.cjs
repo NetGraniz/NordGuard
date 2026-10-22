@@ -7,10 +7,17 @@ const root=path.resolve(rootArg),jdk=path.resolve(jdkArg),seed=path.resolve(seed
 assert(path.basename(root).startsWith('nordguard-test-')&&!fs.existsSync(root),'Fresh isolated test directory required');
 const version=fs.readFileSync(path.join(project,'src/main/resources/plugin.yml'),'utf8').match(/^version: (.+)$/m)[1].trim();
 const build=path.resolve(__dirname,'../build/native-client'),launch=JSON.parse(fs.readFileSync(path.join(build,'launch.json'),'utf8'));
+const wurstPath=path.resolve(process.env.NORD_NATIVE_WURST_PATH||launch.wurst);
+assert(fs.statSync(wurstPath).isFile(),'Wurst fixture JAR missing');
+const wurstVersion=path.basename(wurstPath).replace(/^Wurst-Client-v/,'').replace(/-MC.*$/,'');
+const wurstSha256=require('node:crypto').createHash('sha256').update(fs.readFileSync(wurstPath)).digest('hex');
 const noDelay=process.env.NORD_NATIVE_NAGLE!=='1',ordinaryOnly=process.env.NORD_NATIVE_ORDINARY_ONLY==='1';
 const ordinaryDuration=Number(process.env.NORD_NATIVE_DURATION_MS||2000);
 const extended=process.env.NORD_NATIVE_EXTENDED==='1';
 const profile=process.env.NORD_NATIVE_PROFILE==='1';
+const downstepOnly=process.env.NORD_NATIVE_DOWNSTEP_ONLY==='1';
+const downstepDelays=(process.env.NORD_NATIVE_DOWNSTEP_DELAYS||'0,100,300').split(',').map(Number);
+assert(downstepDelays.length>0&&downstepDelays.every(delay=>[0,100,300].includes(delay)),'Invalid downstep delays');
 assert(Number.isInteger(ordinaryDuration)&&ordinaryDuration>=2000&&ordinaryDuration<=30000,'Ordinary duration must be 2000..30000 ms');
 const proxy=new DelayProxy({noDelay}),passed=[],measurements=[],failures=[],predictionCoverage=[];let server,client,serverOutput='',clientOutput='',serverExit=false,clientExit=true,sequence=0;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -65,7 +72,7 @@ async function launchClient(wurst){
   fs.copyFileSync(path.join(__dirname,'options.txt'),path.join(dir,'options.txt'));
   fs.copyFileSync(launch.api,path.join(dir,'mods',path.basename(launch.api)));
   fs.copyFileSync(path.join(build,'NativeClientProbe.jar'),path.join(dir,'mods/NativeClientProbe.jar'));
-  if(wurst)fs.copyFileSync(launch.wurst,path.join(dir,'mods',path.basename(launch.wurst)));
+  if(wurst)fs.copyFileSync(wurstPath,path.join(dir,'mods',path.basename(wurstPath)));
   const launchId=++sequence;
   await control({id:launchId,mode:'idle'});
   clientOutput='';clientExit=false;
@@ -77,12 +84,12 @@ async function launchClient(wurst){
   for(const stream of [client.stdout,client.stderr])stream.on('data',chunk=>clientOutput+=chunk.toString());
   client.on('exit',()=>{clientExit=true});
   await until(()=>{if(clientExit)throw Error('Native startup failed: '+clientOutput.slice(-3500));const s=state();return s.connected&&s.id===launchId;},'native Minecraft login',180000);
-  pass(wurst?'actual Wurst 7.56 client connected':'actual Minecraft 26.2 Fabric client connected without Wurst');
+  pass(wurst?`actual Wurst ${wurstVersion} client connected`:'actual Minecraft 26.2 Fabric client connected without Wurst');
 }
 async function stopClient(){if(client&&!clientExit){try{await mode('stop')}catch{}
   for(let i=0;i<100&&!clientExit;i++)await sleep(100);if(!clientExit)client.kill();}
   if(!fs.existsSync(root))return;
-  fs.writeFileSync(path.join(root,'native-client-'+(fs.existsSync(path.join(root,'client/mods',path.basename(launch.wurst)))?'wurst':'ordinary')+'.log'),clientOutput);
+  fs.writeFileSync(path.join(root,'native-client-'+(fs.existsSync(path.join(root,'client/mods',path.basename(wurstPath)))?'wurst':'ordinary')+'.log'),clientOutput);
 }
 async function main(){
   for(const port of [25659,25660])await new Promise((resolve,reject)=>{const s=net.connect({host:'127.0.0.1',port});
@@ -103,7 +110,7 @@ async function main(){
   await launchClient(false);
   await prepare();await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);
   pass('native server floor support is separate from actual ground contact');
-  for(const delay of [0,100,300]){
+  for(const delay of downstepOnly?[]:[0,100,300]){
     proxy.delay=delay;proxy.jitter=delay===300;
     for(const action of ['walk','sprint','jump','sneak']){
       await prepare();const before=await stats(),origin=await activeState('idle');
@@ -124,11 +131,30 @@ async function main(){
       fs.appendFileSync(path.join(root,'native-prediction.log'),inspect+'\n');
     }
   }
+  for(const delay of downstepDelays) {
+    proxy.delay=delay;proxy.jitter=delay===300;await prepare();
+    await marker('guardprobe nativetrace GuardFixture',/GUARD_TRACE_STARTED/);
+    const before=await stats();await mode('jump');await sleep(12000);await mode('idle');await sleep(1200);
+    await marker('guardprobe ordinaryscenario GuardFixture downstep',/GUARD_ORDINARY_SCENARIO/);
+    const origin=await activeState('idle');await mode('jump');await sleep(12000);
+    const activeEnd=await activeState('jump');await mode('idle');await sleep(1200);const after=await stats();
+    const issues=[];
+    if(activeEnd.travel<12)issues.push('insufficient native travel across step');
+    if(!Number.isFinite(activeEnd.minY)||activeEnd.minY>origin.y-.9)issues.push('one-block descent was not observed');
+    for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])
+      if(after[check]!==before[check])issues.push('false positive '+check);
+    if(after.corrections!==before.corrections)issues.push('unexpected correction');
+    measurements.push({kind:'downstep',delay,jitter:proxy.jitter,before,after,origin,end:activeEnd});
+    if(issues.length) {const issue=`native sprint-jump one-block downstep, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
+    else pass(`native sprint-jump one-block downstep after warmup, ${delay}ms per direction`);
+  }
+  if(!downstepOnly) {
   if(predictionCoverage.some(p=>p.action==='walk'&&p.delay===0&&p.seeds>0&&p.accepted>0&&p.trials>0))
     pass('native ordinary predictor seeded and accepted real client frames without forced chunk resends');
   else {
     const issue='Native ordinary prediction must actually seed and accept frames; zero coverage is not a pass';
     failures.push(issue);console.log('FAIL: '+issue);
+  }
   }
   if(extended){
     proxy.delay=100;proxy.jitter=true;
@@ -189,6 +215,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

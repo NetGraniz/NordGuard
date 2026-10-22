@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 — sprint-jump transitions
+
+- Recognize a landing/takeoff batch even when its net displacement is still downward. Require descent toward a nearby server-observed floor, an upward change and a matching one-to-three-step takeoff height.
+- Count the minimum jump interval using trusted owner ticks across silent transport intervals. Retain only the immediately previous floor when the current bounded scan cannot reach it; check at most three descending steps without additional world queries.
+- Keep unpaid speed debt dirty, but add SPEED evidence only on fresh excessive displacement, not on legal movement repaying an earlier burst.
+- Add one-block-down native scenarios after a twelve-second sprint-jump warmup, actual-descent validation, retained failed runs and selectable Wurst test archives. BoatFlight/vehicle physics and inter-block mining-delay enforcement are not added.
+- Keep configuration, permissions, modes, configured violation thresholds and burst caps unchanged. Add no task, dependency or world scan.
+
 ## 0.5.1 — audit corrections
 
 - Replace adjacent-displacement Flight acceleration with a bounded cumulative descending envelope. Cover ordinary/batched falls, slowfall, hover, large downward bursts and changing server attributes without restarting the clock.

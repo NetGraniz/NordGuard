@@ -1,6 +1,6 @@
 # NordGuard
 
-Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.1 fixes batched fall and item-use observations, bounds queued diagnostic probes and expires stale WallHit observations. Successful setbacks seed movement history from the confirmed destination so late movement is still measured. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This release does not claim complete cheat coverage or validated 600-player capacity.
+Bounded movement, combat and block checks for Minecraft 26.2 on Paper and Folia. Version 0.5.2 fixes recognition of coalesced landings during repeated sprint-jumps and a one-block descent. Jump timing uses elapsed owner ticks; takeoff inference needs a nearby server-observed floor. Repaying old speed debt no longer adds fresh speeding evidence. Successful setbacks retain checked movement history, and burst debt still prevents unsafe anchor refresh. Ordinary packet prediction remains opt-in and observation-only. The plugin checks impossible or excessive server-visible actions, not whether a particular client modification is installed. This release does not claim complete cheat coverage or validated 600-player capacity.
 
 The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases on each tested platform; Folia also passes 11 extended ordinary scenarios, including a two-minute patrol. Initial predictor seeds and accepted frames are now nonzero. These are narrow checks, not universal correction safety or 600-player capacity. Stage 4's broader validation remains open. Keep movement checks in OBSERVE. Earlier relay results are qualified in [TESTING.md](TESTING.md), alongside current evidence and remaining gates.
 
@@ -213,7 +213,7 @@ See [COVERAGE.md](COVERAGE.md) for the Wurst feature map, including implemented 
 mvn -B -ntp clean verify
 ```
 
-Requires Maven and JDK 25. Output: `target/NordGuard-0.5.1.jar`. The provided Paper API is not bundled.
+Requires Maven and JDK 25. Output: `target/NordGuard-0.5.2.jar`. The provided Paper API is not bundled.
 
 Unit tests cover ordinary jumps, hover, wall ascent, speed, bursts, excessive ascent, landing distance, exemptions, resets, attributes, disabled checks and policy limits. A synthetic workload exercises 600 model instances; it excludes world queries, networking and scheduling and is not a 600-player load test.
 

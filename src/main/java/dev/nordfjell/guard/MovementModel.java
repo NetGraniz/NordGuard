@@ -22,6 +22,7 @@ final class MovementModel {
     private int airTicks, groundTicks, jumpAge, descentAge;
     private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
     private double slowDebt, slowCredit, slowLimit;
+    private double lastSupportY=Double.NaN;
     private final FlightEnvelope flight = new FlightEnvelope();
     private boolean falling;
     private final double[] scores = new double[Check.values().length];
@@ -30,6 +31,7 @@ final class MovementModel {
         last = null; airTicks = groundTicks = 0; jumpAge = descentAge = 100;
         lastDy = speedDebt = jumpMomentum = descentDy = idleSpeedCredit = idleSpeedLimit = 0; falling = false;
         slowDebt=slowCredit=slowLimit=0;flight.reset();
+        lastSupportY=Double.NaN;
         java.util.Arrays.fill(scores, 0);
     }
 
@@ -47,6 +49,9 @@ final class MovementModel {
     /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
     void transportIdleTick() {
         if (last == null || last.exempt() || last.medium()) return;
+        // This is a trusted owner tick, not a client tick claim. Keep the
+        // minimum takeoff interval in elapsed owner time across transport gaps.
+        jumpAge = Math.min(100, jumpAge + 1);
         idleSpeedTick(last.speed() + jumpMomentum + .02);
         idleSlowTick();
         int speed = Check.SPEED.ordinal();
@@ -83,13 +88,14 @@ final class MovementModel {
     Result accept(Frame next, Policy policy, double supportY) {
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
-            reset(); last = next; peakY = next.y();
+            reset(); last = next; peakY = next.y();lastSupportY=supportY;
             idleSpeedLimit = next.speed() * policy.burstTicks();
             // One position after a reset proves no displacement, so it cannot replace a return anchor.
             return new Result(flags, 0, false);
         }
         double dx = next.x() - last.x(), dy = next.y() - last.y(), dz = next.z() - last.z();
         double horizontal = Math.hypot(dx, dz);
+        double previousSupportY=lastSupportY;lastSupportY=supportY;
         if (!Double.isFinite(horizontal) || !Double.isFinite(dy)) {
             reset(); last = next;
             return new Result(flags, 0, false);
@@ -126,7 +132,7 @@ final class MovementModel {
             score(Check.SPEED, false, policy, flags);
             score(Check.HIGHJUMP, false, policy, flags);
             speedDebt = jumpMomentum = idleSpeedCredit = 0; airTicks = 0; falling = false;
-            slowDebt=slowCredit=slowLimit=0;flight.reset();
+            slowDebt=slowCredit=slowLimit=0;flight.reset();lastSupportY=Double.NaN;
             boolean supportedIdle = next.ground() && last.ground() && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
             peakY = next.y(); lastDy = dy; last = next;
@@ -138,11 +144,23 @@ final class MovementModel {
         int jumpSteps = last.ground() && !next.ground() ? jumpSteps(dy, next.jump(), next.gravity()) : 0;
         // A batched landing/takeoff may have no grounded owner snapshot at all.
         // Require server collision support and descent near that floor, not the client ground bit.
-        boolean missedLanding = !last.ground() && !next.ground() && Double.isFinite(supportY)
-                && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0 && dy > 0
-                && last.y() >= supportY && last.y() - supportY <= .6
-                && last.y() + (descentDy - next.gravity()) * .98 <= supportY + .01;
-        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - supportY, next.jump(), next.gravity());
+        // The third takeoff step is just over one block above the floor, so the
+        // current bounded scan can no longer see it. Keep only the immediately
+        // previous server-observed floor; never manufacture air as support.
+        double takeoffSupport=Double.isFinite(supportY)?supportY:previousSupportY;
+        double projectedY=last.y(),projectedVelocity=descentDy;
+        for(int step=0;step<3;step++) {
+            projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
+        }
+        boolean missedLanding = !last.ground() && !next.ground() && Double.isFinite(takeoffSupport)
+                && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0
+                // Landing and the first jump step can share a snapshot whose
+                // net displacement is still down. Require a real upward change
+                // from descent, plus the checked floor and matching jump height.
+                && (dy > 0 || dy > (lastDy-next.gravity())*.98+policy.verticalMargin())
+                && last.y() >= takeoffSupport && last.y() - takeoffSupport <= 1
+                && projectedY <= takeoffSupport + .01;
+        if (jumpSteps == 0 && missedLanding) jumpSteps = jumpSteps(next.y() - takeoffSupport, next.jump(), next.gravity());
         if (jumpSteps != 0) {
             jumpMomentum = .2;
             for (int i = 1; i < jumpSteps; i++) jumpMomentum *= .91;
@@ -162,7 +180,9 @@ final class MovementModel {
             speedDebt = Math.min(100, required - spent);
             idleSpeedCredit -= spent;
         }
-        score(Check.SPEED, speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
+        // Outstanding burst debt keeps the return anchor dirty, but a later
+        // movement that repays it is not fresh evidence of speeding.
+        score(Check.SPEED, horizontal>allowed && speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
         if (next.ground()) {
             score(Check.HIGHJUMP, dy > next.step() + policy.verticalMargin(), policy, flags);
         } else {
@@ -173,7 +193,7 @@ final class MovementModel {
         int ascentAllowance = (int) Math.ceil(next.jump() / Math.max(.001, next.gravity())) + 6;
         boolean aboveFlight=false;
         if(next.ground() || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
-        else aboveFlight=flight.excess(next.y(),missedLanding?supportY:last.y(),next.jump(),next.gravity(),
+        else aboveFlight=flight.excess(next.y(),missedLanding?takeoffSupport:last.y(),next.jump(),next.gravity(),
                 jumpSteps!=0,ascentAllowance,policy.verticalMargin());
         score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
                 && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);

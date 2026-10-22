@@ -19,6 +19,7 @@ final class NativeScenario {
             player.setVelocity(new org.bukkit.util.Vector(.6,.42,0));return;
         }
         var material=switch(kind) {
+            case "downstep" -> Material.STONE;
             case "ice" -> Material.ICE;
             case "honey" -> Material.HONEY_BLOCK;
             case "slime" -> Material.SLIME_BLOCK;
@@ -33,7 +34,12 @@ final class NativeScenario {
                     || !at.getWorld().isChunkLoaded((x+dx)>>4,(z+dz)>>4))
                 throw new AssertionError("Native scenario terrain not loaded/owned");
         for(int dx=2;dx<=22;dx++)for(int dz=-2;dz<=2;dz++) {
-            if(kind.equals("slabs")) {
+            if(kind.equals("downstep")) {
+                if(dx>=6) {
+                    at.getWorld().getBlockAt(x+dx,78,z+dz).setType(material,false);
+                    at.getWorld().getBlockAt(x+dx,79,z+dz).setType(Material.AIR,false);
+                }
+            } else if(kind.equals("slabs")) {
                 // Half-block transitions in both directions, surrounded by the ordinary floor.
                 if((dx/3)%2==1)at.getWorld().getBlockAt(x+dx,80,z+dz).setType(material,false);
             } else at.getWorld().getBlockAt(x+dx,79,z+dz).setType(material,false);

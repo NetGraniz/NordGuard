@@ -1,23 +1,17 @@
-# NordGuard 0.5.1
+# NordGuard 0.5.2
 
 Minecraft 26.2 on Paper and Folia; Java 25 required.
 
 ## Fixes
 
-- Flight checks a bounded cumulative descending envelope instead of comparing
-  a multi-step displacement with a one-step velocity. Client packet counts do not
-  buy time; server attribute changes do not restart the envelope clock.
-- NoSlow accounts for batched item-use movement with bounded owner-time debt and
-  credit. Ending use does not erase unpaid excess or mint another reserve.
-- Successful setbacks seed movement history and owner position from the checked
-  destination so late movement during grace remains measurable.
-- Diagnostic Ping dispatch permits one queued/executing task per channel and
-  discards a queued probe older than 500 ms.
-- WallHit compares exact geometry for the same world and target, expires gaps
-  above 200 ms and resets unknown/skipped observations. These are repeated
-  observations, not continuous block-history reconstruction.
-- The shutdown flag resets on enable. The local load fixture checks the actual
-  connected population after an early stop instead of always expecting 50.
+- Recognize coalesced landing/takeoff transitions when net displacement is still
+  downward. Keep only the previous server-observed floor when the current scan
+  cannot reach it, and require a bounded descending path plus a matching takeoff
+  height. No extra terrain query is made.
+- Count the minimum jump interval in trusted owner ticks across transport gaps,
+  not just received movement samples. Client packet counts grant no extra time.
+- Keep unpaid burst debt out of clean return anchors, but add SPEED evidence
+  only for fresh excessive displacement rather than legal debt repayment.
 
 No new dependency, repeating task or world scan was added. Existing schema,
 permissions, configuration and data remain compatible. All checks default to
@@ -26,30 +20,35 @@ replica/prediction remain disabled by default; there are no automatic bans/kicks
 
 ## Verification
 
-276 unit tests and seven session-count cases passed. The final archive passed
-94 runtime assertions on each of Paper and Folia, then 32 native Folia checks
-including actual Wurst movement and two disable/enable cycles. An earlier native
-run lacked initial chunk/predictor coverage; the unchanged JAR passed the repeat.
-That timing-sensitive experimental bootstrap remains a recorded limitation,
-not a claim of stable predictor coverage. Extended/600-player tests were not
-repeated. Full evidence and failed runs are retained in TESTING.md.
+284 unit tests passed, including ledge phases, skipped ground snapshots,
+unknown-floor rejection, excess speed, hover and preserved fall distance.
+The final archive passed 22 focused native Folia checks with Wurst 7.56.1,
+including the one-block descent at 0/100/300 ms per direction, all twelve
+hostile movement cases and two lifecycle cycles. This was a focused run,
+not a repeat of the full ordinary/predictor or extended terrain matrix.
+The same archive passed 94 Paper runtime assertions, including sustained cheat
+corrections, ordinary sprint-jumps, mining/action gates and cleanup.
+Full evidence and retained failed development runs are recorded in TESTING.md.
 
-Archive: 170,659 bytes. SHA-256:
-`c2ca78c6994a6366fd678327108032541644b0751413d057c72166126ebb7946`.
+Archive: 170,865 bytes. SHA-256:
+`01df68780e98941eb84249ab6fe7ad1fbaa14b0e0c9e1281d5144c5ff872a1ac`.
 
 ## Installation
 
 Stop the server and keep a backup of the old JAR and `plugins/NordGuard`.
 Remove the old NordGuard JAR from active `plugins` and keep exactly one:
-`NordGuard-0.5.1.jar`. Preserve existing configuration and data, then restart.
+`NordGuard-0.5.2.jar`. Preserve existing configuration and data, then restart.
 Do not restart with both the old and new JAR present. Staging a new JAR alongside
 the old one does not mean installation has been completed.
 
 ## Scope
 
-This is a targeted audit-fix release, not new support for all client features,
-a universal bypass audit, or evidence of 600-player capacity. Full combat,
-elytra/vehicle physics and production-plugin interactions remain outside the
-verified scope. See [TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md)
+This release targets ordinary sprint-jump transitions. BoatFlight/vehicle
+physics and enforcement of the delay between consecutive mined blocks are
+not added. A client module appearing enabled does not by itself prove a
+server-side bypass. This is not a universal bypass audit or evidence of
+600-player capacity. Full combat, elytra physics and production-plugin
+interactions remain outside the verified scope. See
+[TESTING.md](https://github.com/NetGraniz/NordGuard/blob/main/TESTING.md)
 for current results, retained failed runs and archive hashes, and
 [COVERAGE.md](https://github.com/NetGraniz/NordGuard/blob/main/COVERAGE.md) for check scope.

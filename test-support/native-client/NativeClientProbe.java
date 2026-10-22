@@ -16,7 +16,7 @@ public final class NativeClientProbe implements ClientModInitializer {
     private long id = -1, ticks;
     private Object hack;
     private boolean patrol, returning;
-    private double originX, travel, lastX, lastZ;
+    private double originX, travel, lastX, lastZ, minY;
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
     }
@@ -35,6 +35,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                     patrol = next.has("patrol") && next.get("patrol").getAsBoolean();
                     returning = false; originX = mc.player == null ? 0 : mc.player.getX();
                     travel = 0; lastX = originX; lastZ = mc.player == null ? 0 : mc.player.getZ();
+                    minY = mc.player == null ? 0 : mc.player.getY();
                     if (!java.util.Set.of("idle","walk","sprint","jump","sneak","flight","speed","spider","water","stop").contains(mode))
                         throw new IllegalArgumentException("Unknown fixture mode");
                     if (java.util.Set.of("flight","speed","spider","water").contains(mode)) {
@@ -58,6 +59,7 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
             if (mc.player != null && local) {
                 travel += Math.hypot(mc.player.getX()-lastX,mc.player.getZ()-lastZ);
+                minY = Math.min(minY,mc.player.getY());
                 lastX = mc.player.getX(); lastZ = mc.player.getZ();
                 if (patrol && forward) {
                     if (mc.player.getX() >= originX + 12) returning = true;
@@ -74,6 +76,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                 state.addProperty("screen",mc.gui.screen()==null?"none":mc.gui.screen().getClass().getSimpleName());
                 state.addProperty("patrol",patrol);
                 state.addProperty("travel",travel);
+                state.addProperty("minY",minY);
                 if (mc.player != null && local) {
                     state.addProperty("x",mc.player.getX()); state.addProperty("y",mc.player.getY()); state.addProperty("z",mc.player.getZ());
                 }

@@ -1,5 +1,70 @@
 # Test record
 
+## 0.5.2 — sprint-jump transitions, 2026-10-22
+
+Archive: 170,865 bytes, SHA-256
+`01df68780e98941eb84249ab6fe7ad1fbaa14b0e0c9e1281d5144c5ff872a1ac`.
+Maven verify passed 284 tests, with no failures/errors/skips. The eight new
+regressions cover 1/2/3-step snapshot spacing across 32 ledge phases, both with
+and without grounded snapshots, net-down landing batches, unknown/distant floor
+rejection, excess speed, near-floor hover, preserved fall distance and repayment
+of a delayed horizontal burst. These are constructed trajectories, not native
+client replays or a capacity benchmark.
+
+Development failures are retained. The original 0.5.1 binary in
+`downstep-baseline-r1` produced SPEED during the ordinary flat warmup, before
+the ledge was placed. Intermediate 0.5.2 archives in `downstep-052-r1/r2`
+reproduced SPEED at 300 ms per direction with FIFO jitter. Trace r2 showed a
+single 4.16-block delivery burst followed by legal movement that repaid debt,
+while the old rule kept adding violations. After the fresh-excess requirement,
+`downstep-052-r3` passed the delayed case but exposed FLIGHT at the zero-delay
+ledge. That exposed minimum jump timing based on received samples and loss of
+floor context after coalesced takeoffs. Owner-time counting and the bounded
+previous-floor inference were added; the earlier archives are not the final
+release hash. Failed native runs are not counted as successful matrix passes.
+
+The native downstep scenario uses a clean client: twelve seconds of sprint-jump
+warmup, then twelve seconds over a one-block descent with native input. It
+requires travel and a recorded minimum height at least 0.9 blocks below the
+origin, not just an unchanged violation counter. Focused mode skips the former
+walk/sprint/sneak/predictor matrix and records that scope explicitly. Raw local
+results remain outside Git. Production configuration, world and accounts were
+not used by the tests.
+
+The final archive passed all 22 focused native Folia assertions in
+`downstep-052-r4`: no recorded failures and `error: null`. At 0/100/300 ms
+per direction, each downstep case recorded origin Y=80 and minimum Y=79,
+with no new movement violations or corrections. The 300 ms profile includes
+ordered jitter. Actual Wurst 7.56.1 Flight, SpeedHack, Spider and Jesus each
+increased their own check counter and completed a correction at all three
+delays. Two disable/enable cycles restored the session, native acknowledgements
+and sampling. The installed NordGuard hash matches the release archive.
+
+The selected user-supplied client archive reports `wurst` version
+`7.56.1-MC26.2` in its Fabric metadata; its SHA-256 is
+`210f9cbfd84a093fd12fcd3daf243fe0fe9569fff1a0d41573aaf0d56b2b3453`.
+It was copied only into the isolated synthetic client directory. This is
+archive identification, not an independent provenance or malware certification.
+The run records `downstepOnly: true`, `ordinaryOnly: false`, all three downstep
+delays, and disabled extended/profile modes. It does not repeat the twelve-case
+ordinary/predictor matrix, extended terrain, soak, capacity tests, BoatFlight
+or native FastBreak mining. Single-client results do not establish production
+plugin compatibility or 600-player overhead.
+
+The same final archive also passed 94 Paper runtime assertions in
+`paper-052-r1` with `error: null`, including repeated Flight/Speed corrections,
+ordinary sprint-jumps, item slowdown, native fall recovery, mining/action gates,
+world-query bounds, timeout/late-completion handling, delay/jitter, packet reload
+and cleanup. The installed hash matches the release archive. The FIFO relay
+byte-order regression and seven session-count tests also passed. Both test ports
+were closed after the runs. The JAR contains no test helper or Wurst classes.
+No new full Folia synthetic/runtime matrix or sustained load test was run.
+
+BoatFlight is still outside the vehicle-free movement model. FASTBREAK does
+not claim enforcement of the vanilla delay between consecutive blocks. A
+reported faster animation or an extra dirt block is not evidence here of
+server-side duplication or a confirmed premature-break bypass.
+
 ## 0.5.1 — audit-fix verification, 2026-10-18
 
 Release archive: 170,659 bytes, SHA-256
