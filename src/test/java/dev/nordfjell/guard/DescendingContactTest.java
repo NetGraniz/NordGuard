@@ -57,4 +57,17 @@ class DescendingContactTest {
         assertFalse(approach(Double.NaN).accept(frame(.7,70,false),MovementModelTest.policy(),68).inferredLanding());
         assertFalse(approach(70).accept(frame(.7,69.95,false),MovementModelTest.policy(),68).inferredLanding());
     }
+
+    @Test void coalescedContactAndWalkoffSplitFallsAtTheLedgeNotTheCurrentHeight() {
+        var model=approach(70);var policy=MovementModelTest.policy();
+        var contact=model.accept(frame(.7,69.92159999847412,false),policy,68);
+        assertTrue(contact.inferredLanding());assertEquals(10,contact.landingDistance(),1E-8);
+        var finalContact=model.accept(frame(.9,68,true),policy,68);
+        assertEquals(2,finalContact.landingDistance(),1E-8);
+    }
+
+    @Test void approximateOrUnknownWalkoffCannotEraseFallDebt() {
+        assertFalse(approach(70).accept(frame(.7,69.90,false),MovementModelTest.policy(),68).inferredLanding());
+        assertFalse(approach(Double.NaN).accept(frame(.7,69.9216,false),MovementModelTest.policy(),68).inferredLanding());
+    }
 }

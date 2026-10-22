@@ -120,12 +120,23 @@ final class MovementModel {
             projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
         }
         // Collision resolution can clip Y against a ledge, then move the feet
-        // beyond it in X/Z. Exact contact still splits the fall without a jump.
-        boolean sweptGround=false;
+        // beyond it in X/Z. Contact may share a snapshot with the first few
+        // gravity steps after walking off; match them at sub-block precision.
+        double sweptSupport=Double.NaN;
+        int passiveSteps=0;
         if(!next.ground()&&!lastGround&&dy<-.001&&lastDy<=0&&descentAge<=2)
-            for(int i=0;i<supportCount;i++)if(ownerTick-supportTicks[i]<=arrivalTicks
-                    &&Math.abs(next.y()-supportHistory[i])<=1E-7&&last.y()>=supportHistory[i]
-                    &&projectedY<=supportHistory[i]+.01) {sweptGround=true;break;}
+            for(int i=0;i<supportCount;i++) {
+                double candidate=supportHistory[i];
+                if(ownerTick-supportTicks[i]>arrivalTicks||last.y()<candidate||projectedY>candidate+.01)continue;
+                double height=candidate,velocity=0;
+                for(int step=0;step<=arrivalTicks;step++) {
+                    if(Math.abs(next.y()-height)<=1E-6) {sweptSupport=candidate;passiveSteps=step;break;}
+                    velocity=(velocity-next.gravity())*.98;height+=velocity;
+                }
+                if(Double.isFinite(sweptSupport))break;
+            }
+        boolean passiveContact=Double.isFinite(sweptSupport);
+        boolean sweptGround=passiveContact&&passiveSteps==0;
         boolean nextGround=next.ground()||sweptGround;
         groundTicks = nextGround && lastGround ? Math.min(100, groundTicks + 1) : 0;
         jumpAge = Math.min(100, jumpAge + 1);
@@ -176,7 +187,7 @@ final class MovementModel {
         // A tiny owner-time-bounded history preserves the swept ledge, without
         // another world scan, trusting client ground flags or granting wall grace.
         double takeoffSupport=Double.NaN;
-        boolean landingPossible = !lastGround && !nextGround
+        boolean landingPossible = !passiveContact && !lastGround && !nextGround
                 && jumpAge >= 10 && descentAge <= 2 && lastDy <= 0
                 // Landing and the first jump step can share a snapshot whose
                 // net displacement is still down. Require a real upward change
@@ -191,6 +202,11 @@ final class MovementModel {
             if(steps!=0) {jumpSteps=steps;takeoffSupport=candidate;missedLanding=true;break;}
         }
         double inferredDistance=0;
+        if(passiveContact) {
+            if(falling)inferredDistance=Math.max(0,peakY-sweptSupport);
+            peakY=sweptSupport;falling=!sweptGround;
+            airTicks=Math.max(0,passiveSteps-1);flight.reset();
+        }
         if (jumpSteps != 0) {
             // A verified intervening landing closes the previous fall. Account for
             // it now, rather than adding later jumps to that same fall forever.
@@ -227,7 +243,7 @@ final class MovementModel {
         int ascentAllowance = (int) Math.ceil(next.jump() / Math.max(.001, next.gravity())) + 6;
         boolean aboveFlight=false;
         if(nextGround || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
-        else aboveFlight=flight.excess(next.y(),missedLanding?takeoffSupport:last.y(),next.jump(),next.gravity(),
+        else aboveFlight=flight.excess(next.y(),passiveContact?sweptSupport:missedLanding?takeoffSupport:last.y(),next.jump(),next.gravity(),
                 jumpSteps!=0,ascentAllowance,policy.verticalMargin());
         score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
                 && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);
@@ -243,7 +259,7 @@ final class MovementModel {
         lastDy = dy; last = next;lastGround=nextGround;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
-        return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0||sweptGround);
+        return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0||passiveContact);
     }
 
     private static int jumpSteps(double height, double jump, double gravity,int arrivalTicks) {

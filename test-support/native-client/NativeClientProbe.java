@@ -32,6 +32,9 @@ public final class NativeClientProbe implements ClientModInitializer {
     private Boolean previousMouseState;
     private double originX, travel, lastX, lastZ, minY;
     private float routeYaw=-90;
+    private JsonObject terrain;
+    private boolean terrainReady;
+    private String terrainMismatch="";
     @Override public void onInitializeClient() {
         ClientTickEvents.START_CLIENT_TICK.register(this::tick);
         AttackEntityCallback.EVENT.register((player,world,hand,target,hit)->{
@@ -64,6 +67,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                     patrol = next.has("patrol") && next.get("patrol").getAsBoolean();
                     routeYaw=next.has("yaw")?next.get("yaw").getAsFloat():-90;
                     if(!Float.isFinite(routeYaw))throw new IllegalArgumentException("Nonfinite route yaw");
+                    terrain=next.has("terrain")?next.getAsJsonObject("terrain"):null;terrainReady=false;terrainMismatch="";
                     targetId = next.has("targetId") ? next.get("targetId").getAsInt() : -1;
                     face = !next.has("face") || next.get("face").getAsBoolean();
                     attackCalls = 0; lastAttackTick = ticks;
@@ -125,6 +129,7 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keySprint.setDown(local && (mode.equals("sprint") || mode.equals("jump")));
             mc.options.keyJump.setDown(local && (mode.equals("jump") || mode.equals("flight") || mode.equals("crit-jump")||mode.equals("boatfly")));
             mc.options.keyShift.setDown(local && mode.equals("sneak"));
+            if(local&&terrain!=null&&!terrainReady&&ticks%5==0)terrainReady=terrainReady(mc);
             if(local&&mode.startsWith("mine")) {
                 if(mouseState==null) {mouseState=mc.mouseHandler.getClass().getDeclaredField("mouseGrabbed");mouseState.setAccessible(true);}
                 if(previousMouseState==null)previousMouseState=mc.mouseHandler.isMouseGrabbed();
@@ -193,6 +198,7 @@ public final class NativeClientProbe implements ClientModInitializer {
                 state.addProperty("screen",mc.gui.screen()==null?"none":mc.gui.screen().getClass().getSimpleName());
                 state.addProperty("patrol",patrol);
                 state.addProperty("routeYaw",routeYaw);
+                state.addProperty("terrainReady",terrainReady);state.addProperty("terrainMismatch",terrainMismatch);
                 state.addProperty("travel",travel);
                 state.addProperty("minY",minY);
                 if (mc.player != null && local) {
@@ -213,6 +219,20 @@ public final class NativeClientProbe implements ClientModInitializer {
             mc.options.keyAttack.setDown(false);if(mc.gameMode!=null)mc.gameMode.stopDestroyBlock();
             try { disableHack(); Files.writeString(root.resolve("failure.txt"),error); } catch(Exception ignored) {}
         }
+    }
+    private boolean terrainReady(Minecraft mc) {
+        int x=terrain.get("x").getAsInt(),z=terrain.get("z").getAsInt(),drop=terrain.get("drop").getAsInt();
+        double gradient=terrain.get("gradient").getAsDouble();
+        if(drop<0||drop>2||!Double.isFinite(gradient)||gradient<0||gradient>1)throw new IllegalArgumentException("Invalid terrain fixture");
+        for(int dx=-2;dx<=44;dx++)for(int lateral=-3;lateral<=3;lateral++) {
+            int step=Math.max(0,(dx-4)/3),floor=80-(drop==0?step+step/2:step*drop),dz=(int)Math.round(dx*gradient)+lateral;
+            for(int y=48;y<=86;y++) {
+                var pos=new net.minecraft.core.BlockPos(x+dx,y,z+dz);
+                var expected=y<floor?net.minecraft.world.level.block.Blocks.STONE:net.minecraft.world.level.block.Blocks.AIR;
+                if(!mc.level.getBlockState(pos).is(expected)) {terrainMismatch=pos+" expected "+expected+" got "+mc.level.getBlockState(pos);return false;}
+            }
+        }
+        terrainMismatch="";return true;
     }
     private void restoreMouse(Minecraft mc) throws ReflectiveOperationException {
         if(previousMouseState!=null) {mouseState.setBoolean(mc.mouseHandler,previousMouseState);previousMouseState=null;}

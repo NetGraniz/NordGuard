@@ -376,6 +376,12 @@ async function main(){
     const diagonal=descent.startsWith('diagonal-');
     const routeYaw=descent.startsWith('diagonal-15-')?-75:-45;
     const routeDuration=routeYaw===-75?6000:diagonal?7000:12000;
+    if(diagonal) {
+      const at=await activeState('idle');
+      await mode('idle',{terrain:{x:Math.floor(at.x),z:Math.floor(at.z),gradient:routeYaw===-75?Math.tan(Math.PI/12):1,
+        drop:descent.endsWith('-mixed')?0:descent.endsWith('-2')?2:1}});
+      await until(()=>state().terrainReady,'complete native route block synchronization: '+descent,15000);
+    }
     const origin=await activeState('idle');await mode('jump',{patrol:!diagonal,...(diagonal?{yaw:routeYaw}:{})});await sleep(routeDuration);
     const activeEnd=await activeState('jump');await mode('idle');await sleep(1200);const after=await stats();
     const issues=[];
@@ -386,7 +392,7 @@ async function main(){
     for(const check of ['FLIGHT','SPEED','SPIDER','HIGHJUMP','WATERWALK','CLIMB','NOWEB','NOSLOW','NOFALL','NOCLIP'])
       if(after[check]!==before[check])issues.push('false positive '+check);
     if(after.corrections!==before.corrections)issues.push('unexpected correction');
-    measurements.push({kind:descent,delay,jitter:proxy.jitter,routeDuration,before,after,origin,end:activeEnd});
+    measurements.push({kind:descent,delay,jitter:proxy.jitter,routeDuration,terrainVerified:diagonal,before,after,origin,end:activeEnd});
     if(issues.length) {const issue=`native sprint-jump ${descent}, ${delay}ms: ${issues.join(', ')}`;failures.push(issue);console.log('FAIL: '+issue);}
     else pass(`native sprint-jump ${descent} after warmup, ${delay}ms per direction`);
   }

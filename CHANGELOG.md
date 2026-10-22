@@ -5,6 +5,7 @@
 - Keep up to six recently observed server support heights when horizontal motion leaves a ledge before the owner snapshot. Expire candidates in trusted owner time, including silent transport intervals; require nearby descending contact and a matching native takeoff height before restarting Flight's jump history.
 - Preserve the previous fall's distance when inferring a landing. Unknown, expired or wrong-height floors do not grant a new takeoff.
 - Split falls at exact-height swept ledge contacts even when the player releases jump and continues downward. Preserve the distance owed at that contact rather than joining two short falls into one larger NoFall event.
+- Recognize a contact followed by a bounded number of ordinary gravity steps in the same snapshot. Require a recent known ledge, a crossed floor height and an exact gravity-step match; keep the distance owed before contact.
 - Retain existing configuration values, permissions and thresholds. No new world query, scheduler, network call or per-sample history allocation is added.
 - Add regression tests for swept ledge contacts, expired/unknown/wrong-height support and invalid takeoff heights. The verified 0.5.4 diagonal regression failures remain recorded in TESTING.md.
 

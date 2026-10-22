@@ -63,6 +63,10 @@ not the slope's inclination. Actual X/Z travel and descent must occur;
 the result records input yaw, minimum height, violations and completed
 corrections. Test-only owner traces also record Flight score, support height,
 jump age and air age. The ordinary client does not load Wurst.
+Before input begins, diagonal routes now verify every edited block in the
+native client's world against the expected corridor. A synchronization timeout
+invalidates the case. This avoids treating unreceived test terrain as a clean
+stable-world control; `terrainVerified` records that prerequisite in JSON.
 
 Set `NORD_NATIVE_DESCENT_REGRESSION=1` to append Wurst movement and surface
 controls to the selected route matrix. `NORD_NATIVE_HOSTILE_DELAYS` selects the
