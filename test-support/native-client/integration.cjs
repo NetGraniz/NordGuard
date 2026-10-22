@@ -446,6 +446,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,descentScenarios,surfaceOnly,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,descentScenarios,surfaceOnly,descentRegression,hostileDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

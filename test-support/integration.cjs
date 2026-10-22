@@ -77,6 +77,7 @@ async function main() {
     bot.once('error',error=>{clearTimeout(timer);reject(error)});
   });
   await marker('guardprobe prepare GuardFixture',/GUARD_PREPARED/);
+  await marker('guardprobe supportfloor GuardFixture',/GUARD_SUPPORT_FLOOR_PASS/);pass('bounded support includes jump height and minimum world floor');
   await sleep(4000);
   await marker('guardprobe probe GuardFixture',/GUARD_GEOMETRY_PASS/); pass('actual block-shape support and body clearance');
   await marker('guardprobe permissions GuardFixture',/GUARD_PERMISSIONS_PASS/); pass('ordinary account has no admin, alerts or bypass');
@@ -156,7 +157,8 @@ async function main() {
     bot.entity.onGround=y<=top-8;
     bot._client.write('position',{x,y,z,flags:{onGround:bot.entity.onGround,hasHorizontalCollision:false}});
   };
-  for(let i=0;i<100;i++){sendPosition(top);await sleep(50)}
+  // Three-second policy grace plus bounded stationary-air sampling, not an instant verdict.
+  for(let i=0;i<160;i++){sendPosition(top);await sleep(50)}
   await marker('nordguard status',/FLIGHT: [1-9]\d*/); pass('stationary unsupported hover detected');
   for(let y=top-.25;y>=top-8;y-=.25){sendPosition(y);await sleep(50)}
   for(let i=0;i<12;i++){sendPosition(top-8);await sleep(50)}

@@ -50,7 +50,7 @@ public final class EnvironmentProbe {
             for (int z = floor(body.getMinZ() - .05); z <= floor(body.getMaxZ() + .05); z++) {
                 if (!Bukkit.isOwnedByCurrentRegion(world, x >> 4, z >> 4) || !world.isChunkLoaded(x >> 4, z >> 4))
                     return new Environment(false, false, false, true, false);
-                for (int y = floor(at.getY()) - 2; y <= floor(body.getMaxY()); y++) {
+                for (int y = Math.max(world.getMinHeight(),floor(at.getY()) - 2); y <= floor(body.getMaxY()); y++) {
                     if (++count > 36 || y < world.getMinHeight() || y >= world.getMaxHeight())
                         return new Environment(false, false, false, true, false);
                     var block = world.getBlockAt(x, y, z);

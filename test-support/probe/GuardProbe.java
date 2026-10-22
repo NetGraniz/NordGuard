@@ -115,6 +115,18 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                             || !rising.known() || rising.ground() || !Double.isFinite(rising.supportY()) || Math.abs(rising.supportY()-floor.getY())>.01
                             || !distant.known() || !Double.isNaN(distant.supportY()))
                         throw new AssertionError("Bounded support floor classification");
+                    var bottom=floor.clone();bottom.setY(floor.getWorld().getMinHeight()+1);
+                    var saved=new org.bukkit.block.data.BlockData[3];
+                    try {
+                        for(int i=0;i<3;i++){
+                            var block=bottom.getWorld().getBlockAt(bottom.getBlockX(),bottom.getBlockY()-1+i,bottom.getBlockZ());
+                            saved[i]=block.getBlockData();block.setType(i==0?Material.STONE:Material.AIR,false);
+                        }
+                        var edge=EnvironmentProbe.inspect(player,bottom);
+                        if(!edge.known()||!edge.ground()||!edge.clear())throw new AssertionError("Minimum-height support must remain known");
+                    }finally{
+                        for(int i=0;i<3;i++)if(saved[i]!=null)bottom.getWorld().getBlockAt(bottom.getBlockX(),bottom.getBlockY()-1+i,bottom.getBlockZ()).setBlockData(saved[i],false);
+                    }
                     getLogger().info("GUARD_SUPPORT_FLOOR_PASS");
                 } else if(action.equals("predictionprepare")) {
                     var at=player.getLocation();int x=(at.getBlockX()>>4)*16+8,z=(at.getBlockZ()>>4)*16+8;
