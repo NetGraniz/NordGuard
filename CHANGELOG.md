@@ -6,6 +6,7 @@
 - Preserve the previous fall's distance when inferring a landing. Unknown, expired or wrong-height floors do not grant a new takeoff.
 - Split falls at exact-height swept ledge contacts even when the player releases jump and continues downward. Preserve the distance owed at that contact rather than joining two short falls into one larger NoFall event.
 - Recognize a contact followed by a bounded number of ordinary gravity steps in the same snapshot. Require a recent known ledge, a crossed floor height and an exact gravity-step match; keep the distance owed before contact.
+- After server-issued velocity, defer NoFall's uncertain airborne segment until a geometric or validated inferred contact restores its origin. Client ground flags cannot restore trust. Flight and Speed remain active after their existing impulse grace; the first uncertain post-velocity segment is outside NoFall enforcement.
 - Retain existing configuration values, permissions and thresholds. No new world query, scheduler, network call or per-sample history allocation is added.
 - Add regression tests for swept ledge contacts, expired/unknown/wrong-height support and invalid takeoff heights. The verified 0.5.4 diagonal regression failures remain recorded in TESTING.md.
 

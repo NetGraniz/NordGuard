@@ -119,9 +119,8 @@ final class MovementModel {
         for(int step=0;step<arrivalTicks;step++) {
             projectedVelocity=(projectedVelocity-next.gravity())*.98;projectedY+=projectedVelocity;
         }
-        // Collision resolution can clip Y against a ledge, then move the feet
-        // beyond it in X/Z. Contact may share a snapshot with the first few
-        // gravity steps after walking off; match them at sub-block precision.
+        // Collision resolution can clip Y against a ledge, then move the feet beyond it.
+        // Match contact plus bounded ordinary gravity steps at sub-block precision.
         double sweptSupport=Double.NaN;
         int passiveSteps=0;
         if(!next.ground()&&!lastGround&&dy<-.001&&lastDy<=0&&descentAge<=2)

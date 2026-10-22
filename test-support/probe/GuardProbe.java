@@ -372,6 +372,13 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                         Field value = session.getClass().getDeclaredField(name); value.setAccessible(true);
                         getLogger().info("GUARD_DEBUG " + name + "=" + value.get(session));
                     }
+                } else if(action.equals("impulsefall")) {
+                    player.setVelocity(new org.bukkit.util.Vector(.05,.1,0));getLogger().info("GUARD_IMPULSE_FALL_SENT");
+                } else if(action.equals("falltrust")) {
+                    var guard=Bukkit.getPluginManager().getPlugin("NordGuard");Field f=NordGuard.class.getDeclaredField("sessions");f.setAccessible(true);
+                    Object session=((java.util.Map<?,?>)f.get(guard)).get(player.getUniqueId());
+                    f=session.getClass().getDeclaredField("fallOriginTrusted");f.setAccessible(true);
+                    getLogger().info("GUARD_FALL_TRUST "+f.getBoolean(session));
                 } else if (action.equals("partial")) {
                     player.setHealth(20); player.setNoDamageTicks(0);
                     int before = falls;

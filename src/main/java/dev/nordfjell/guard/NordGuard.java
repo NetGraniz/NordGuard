@@ -198,6 +198,9 @@ public final class NordGuard extends JavaPlugin implements Listener {
         Session session = sessions.get(event.getPlayer().getUniqueId());
         if (session != null) {
             session.suspend(2);
+            // A server impulse can restart the sampled model in mid-air.
+            // Re-establish a geometric contact before charging a new NoFall segment.
+            session.fallOriginTrusted=false;
             var velocity = event.getVelocity();
             session.impulseSpeed = Math.min(32, Math.hypot(velocity.getX(), velocity.getZ()));
             session.impulseY = Math.min(32, Math.max(0, velocity.getY()));
@@ -234,6 +237,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             session.safe = session.setbackTarget = null;
             session.teleporting = false;
             session.suspend(policy.transitionGrace());
+            session.fallOriginTrusted=true;
         }
     }
 
@@ -363,6 +367,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
         double impulseSpeed, impulseY;
         int pendingTicks;
         boolean airborne, teleporting;
+        boolean fallOriginTrusted=true;
         volatile boolean stopped;
         Session(Player player) { this.player = player; seenPolicy = policy; grace = policy.joinGrace(); }
         void stop() { stopped = true; if (task != null) task.cancel(); closePackets(); }
@@ -595,7 +600,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
                 fallBaseline = fallEvents; rawBaseline = fallRawDamage; overrideBaseline = fallOverrides;
             }
             airborne = !environment.ground();
-            if (result.landingDistance() > attribute(player, Attribute.SAFE_FALL_DISTANCE, 3) + 1
+            if (fallOriginTrusted && result.landingDistance() > attribute(player, Attribute.SAFE_FALL_DISTANCE, 3) + 1
                     && attribute(player, Attribute.FALL_DAMAGE_MULTIPLIER, 1) > 0 && !player.isInvulnerable()
                     && Boolean.TRUE.equals(at.getWorld().getGameRuleValue(GameRule.FALL_DAMAGE))
                     && current.modes().get(Check.NOFALL) != Policy.Mode.OFF) {
@@ -605,6 +610,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             if(result.inferredLanding()){
                 fallBaseline=fallEvents;rawBaseline=fallRawDamage;overrideBaseline=fallOverrides;
             }
+            if(environment.ground()||result.inferredLanding())fallOriginTrusted=true;
             boolean correct = false;
             for (Check check : result.flags()) {
                 report(this, check, "movement outside conservative envelope");

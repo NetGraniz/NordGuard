@@ -1,4 +1,29 @@
-# 0.5.3 development record
+# Development record
+
+## 0.5.5 retained failures
+
+- Candidate `ad009e97b3ab1c90b5bcee7c58332c9fafeea12b67ff2dd928d4e44ca40f6a4d`
+  removed the diagonal Flight failures, but a 300 ms alternating-step route
+  produced a false NoFall. Repeated focused routes reproduced the NoFall;
+  they are not a full passing matrix. The combined native SnowShoe OBSERVE
+  positive control also failed to accumulate evidence; that control is not
+  counted as passing.
+- Candidate `67d0c213ecb02d9dfcc3f2e3e5878aa029ff656b276fabd87938e817df7ab837`
+  added exact swept contacts. Flight stayed clear, but two 300 ms routes
+  still produced false NoFall evidence when contact and subsequent movement
+  were coalesced.
+- Candidate `919d6cbd3293c2f424619479f29ca1d04c8cba372644dff5ce9dee3fd7badc4d`
+  added bounded ordinary-gravity walkoff matching. The eight-route run
+  passed all Flight controls but retained one NoFall failure at 15 degrees
+  and 300 ms, even after native-client terrain synchronization. A separate
+  fresh 15-degree run passed; it does not erase the retained failure.
+- The following change treats a post-server-velocity fall origin as
+  untrusted until geometric or validated inferred contact. This is an
+  explicit conservative NoFall deferral, not complete post-knockback physics
+  prediction. Native collision-field diagnostics in PlayerMoveEvent did not
+  provide useful contacts and were not added to the production plugin.
+
+## 0.5.3 development record
 
 Retained development evidence. See TESTING.md and RELEASE_NOTES.md for the final release archive and completed checks.
 

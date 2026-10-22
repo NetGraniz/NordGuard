@@ -19,7 +19,7 @@ The corrected-fixture rc.8 native matrix passes 12 ordinary and 12 Wurst cases o
 | Climb | Repeated ascent faster than 0.24 blocks per sampled tick while the server reports climbing. |
 | NoWeb | Excess movement while the player's body intersects a cobweb; Weaving and plugin-cancelled cobweb interactions defer checks. |
 | NoSlow | Sustained excessive grounded speed during server-observed item use; reads the item's USE_EFFECTS speed multiplier. |
-| NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. |
+| NoFall | Insufficient base fall damage after an observed geometrical landing. Correction uses native fall-damage processing. After server-issued velocity, the uncertain segment defers until a geometric or validated inferred contact restores the fall origin; client ground flags cannot restore it. |
 | NoClip | Near-horizontal sampled paths crossing a full solid cube, with clear endpoints. Only bodies at least 1.5 blocks high, displacement above 0.8 and below 4 blocks, and vertical change below 0.05 are checked. |
 | Reach | Eye-to-target-box distance beyond the server range, including the actual ATTACK_RANGE weapon component. Recent player snapshots provide a small lag allowance. |
 | WallHit | All ten sampled sight lines cross full cubes in a bounded, region-owned area. Matching world, target and exact geometry require a 200 ms observation span and remain eligible for up to 1,500 ms between attacks. Unknown or changed geometry resets confirmation. The first settling hit may land. |

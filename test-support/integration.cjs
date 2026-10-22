@@ -160,6 +160,12 @@ async function main() {
   // Three-second policy grace plus bounded stationary-air sampling, not an instant verdict.
   for(let i=0;i<160;i++){sendPosition(top);await sleep(50)}
   await marker('nordguard status',/FLIGHT: [1-9]\d*/); pass('stationary unsupported hover detected');
+  await marker('guardprobe impulsefall GuardFixture',/GUARD_IMPULSE_FALL_SENT/);
+  for(let i=0;i<20;i++){
+    bot._client.write('position',{x,y:top,z,flags:{onGround:true,hasHorizontalCollision:false}});await sleep(50);
+  }
+  await marker('guardprobe falltrust GuardFixture',/GUARD_FALL_TRUST false/);
+  pass('server impulse defers untrusted NoFall origin; spoofed ground does not restore trust');
   for(let y=top-.25;y>=top-8;y-=.25){sendPosition(y);await sleep(50)}
   for(let i=0;i<12;i++){sendPosition(top-8);await sleep(50)}
   const health=await marker('guardprobe health GuardFixture',/GUARD_HEALTH ([\d.]+)/);
@@ -167,6 +173,8 @@ async function main() {
   const ordinary=await marker('nordguard status',/NOFALL: (\d+)/);
   assert.equal(+ordinary[1],0,'Ordinary damage must not trigger NoFall');
   pass('existing native fall damage is not duplicated');
+  await marker('guardprobe falltrust GuardFixture',/GUARD_FALL_TRUST true/);
+  pass('geometrical landing restores NoFall origin trust');
   await marker('guardprobe suppress GuardFixture',/GUARD_SUPPRESSION_READY/);
   const fault=await marker('guardprobe lift GuardFixture',/GUARD_LIFT ([\d.-]+) ([\d.-]+) ([\d.-]+)/);
   const fx=+fault[1], fy=+fault[2], fz=+fault[3];
