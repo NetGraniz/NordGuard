@@ -153,6 +153,7 @@ Rate budgets refill with monotonic elapsed time, not packet count or server TPS.
 
 ```yaml
 movement:
+  max-elapsed-ticks: 4
   max-coalesced-ticks: 6
   stationary-air-sample-ticks: 3
   spider-launch-grace-ticks: 6
@@ -167,6 +168,10 @@ The existing bounded terrain scan includes floors up to two blocks below the fee
 PowderSnow requires consecutive known surface observations within a 0.1-block height window, without geometric solid support or leather boots. Native high-fall collision, ordinary sinking, Creative, authorized flight and `nordguard.bypass` remain exempt. Existing configurations without `checks.powdersnow` inherit WaterWalk's mode; an explicit mode wins. New installations observe only. This does not model every movement cheat inside snow.
 
 Unchanged owner ticks repay speed debt first, then retain unused allowance up to `burst-ticks` times the current speed allowance. Later batches consume that reserve once; standing still longer cannot enlarge it. Client packet counts do not create movement allowance.
+
+From 0.5.6, horizontal Speed/NoSlow and Climb/NoWeb displacement allowances use the actual monotonic interval between entity-owner samples, divided by 50 ms. A 125 ms region tick therefore receives 2.5 nominal ticks of movement budget, not one. Fast catch-up calls receive only their elapsed fraction; no minimum 50 ms is minted per call. Idle time repays debt once and retains only the existing burst-bounded reserve. The local interval is used instead of a global TPS value because Folia regions tick independently.
+
+`max-elapsed-ticks` accepts integers 2–6 and defaults to 4 (200 ms). An interval beyond either this cap or `movement.max-sample-gap-ms` resets/defer movement history rather than creating an unlimited allowance. Leave `max-sample-gap-ms` at the normal 250 ms when testing sustained low TPS; 100 ms deliberately defers checks whenever a local tick exceeds 100 ms and is not lag compensation. Existing explicit settings are preserved. Slow sampling widens some movement envelopes, including combined grounded steps; it does not provide full packet-ordered physics or guarantee protection at arbitrary TPS. No new scheduler, world scan or background TPS poll is added.
 
 Speed uses the server movement-speed attribute, walk speed and accepted velocity impulses. A plausible normal jump receives a decaying horizontal momentum allowance; tiny client hops do not. These are bounded envelopes, not a complete simulation of friction, packets or client physics.
 

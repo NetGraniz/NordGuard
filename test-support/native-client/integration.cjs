@@ -18,6 +18,7 @@ const extended=process.env.NORD_NATIVE_EXTENDED==='1';
 const profile=process.env.NORD_NATIVE_PROFILE==='1';
 const downstepOnly=process.env.NORD_NATIVE_DOWNSTEP_ONLY==='1';
 const surfaceOnly=process.env.NORD_NATIVE_SURFACE_ONLY==='1';
+const lowTpsOnly=process.env.NORD_NATIVE_LOW_TPS_ONLY==='1';
 const descentRegression=process.env.NORD_NATIVE_DESCENT_REGRESSION==='1';
 const hostileDelays=(process.env.NORD_NATIVE_HOSTILE_DELAYS||'0,100,300').split(',').map(Number);
 assert(hostileDelays.every(d=>[0,100,300].includes(d)));
@@ -69,7 +70,8 @@ async function mode(next,options={}){const id=++sequence;await control({id,mode:
     if(clientExit)throw Error('Native client exited: '+clientOutput.slice(-2000));return state().id===id;},'client mode '+next,20000);}
 async function stats(){const output=await marker('nordguard status',/POWDERSNOW: \d+/);const result={};
   for(const match of output.matchAll(/\b([A-Z]+): (\d+)/g))result[match[1]]=+match[2];
-  result.corrections=+output.match(/corrections=(\d+)/)[1];return result;}
+  result.corrections=+output.match(/corrections=(\d+)/)[1];
+  result.samples=+output.match(/Samples=(\d+)/)[1];result.deferred=+output.match(/deferred=(\d+)/)[1];return result;}
 async function recording(operation){
   const args=[String(server.pid),operation];
   if(operation==='JFR.start')args.push('name=NordGuardFixture','settings=profile');
@@ -321,6 +323,44 @@ async function movementHostiles(){
     }
   }
 }
+async function lowTpsMatrix(){
+  await launchClient(false);
+  for(const stall of [65,120]) {
+    for(const action of ['walk','sprint','jump']) {
+      await prepare();
+      await marker('guardprobe lagprofile GuardFixture '+stall,/GUARD_LAG_STARTED/);
+      await sleep(1500);
+      const before=await stats();await mode(action,{patrol:true});
+      await sleep(10000);const input=await activeState(action);await mode('idle');await sleep(1000);
+      const after=await stats();
+      const sample=(await marker('guardprobe lagprofile GuardFixture 0',/GUARD_LAG_STOP samples=(\d+) mean_tick_ms=([\d.]+)/))
+        .match(/GUARD_LAG_STOP samples=(\d+) mean_tick_ms=([\d.]+)/);
+      const meanTickMs=+sample[2];
+      measurements.push({kind:'native-low-tps',action,stall,meanTickMs,before,after,input});
+      assert(+sample[1]>20&&meanTickMs>=stall,'Owner thread did not actually slow down');
+      assert(input.travel>1,'Ordinary low-TPS input did not move');
+      assert(after.samples-before.samples-(after.deferred-before.deferred)>20,'Checks stayed deferred instead of testing movement');
+      const issues=[];
+      for(const check of ['SPEED','FLIGHT','SPIDER','HIGHJUMP','NOSLOW','NOFALL'])if(after[check]!==before[check])issues.push(check);
+      if(after.corrections!==before.corrections)issues.push('corrections');
+      if(issues.length){const issue=`low TPS ${action}, stall=${stall}: ${issues.join(',')}`;failures.push(issue);console.log('FAIL: '+issue);}
+      else pass(`native ${action} without correction, actual mean owner tick ${meanTickMs.toFixed(1)}ms`);
+    }
+  }
+  await stopClient();await sleep(1500);await launchClient(true);
+  for(const [action,terrain,check] of [['speed',null,'SPEED'],['flight',null,'FLIGHT'],['spider','spider','SPIDER']]){
+    await prepare(terrain);await marker('guardprobe lagprofile GuardFixture 120',/GUARD_LAG_STARTED/);await sleep(1500);
+    const before=await stats();await mode(action);const enabled=await activeState(action);
+    assert(enabled.moduleEnabled,'Real Wurst module was not enabled');
+    await sleep(10000);await mode('idle');await sleep(1000);const after=await stats();
+    const sample=(await marker('guardprobe lagprofile GuardFixture 0',/GUARD_LAG_STOP samples=(\d+) mean_tick_ms=([\d.]+)/))
+      .match(/GUARD_LAG_STOP samples=(\d+) mean_tick_ms=([\d.]+)/);
+    measurements.push({kind:'wurst-low-tps',action,meanTickMs:+sample[2],before,after});
+    if(after[check]<=before[check]||after.corrections<=before.corrections){const issue='Wurst low TPS not corrected: '+action;failures.push(issue);console.log('FAIL: '+issue);}
+    else pass(`actual Wurst ${action} corrected at low TPS`);
+  }
+  assert(!/Deferred player check after internal error|Cannot read world asynchronously|GUARD_PROBE_FAIL/.test(serverOutput));
+}
 async function main(){
   for(const port of [25659,25660])await new Promise((resolve,reject)=>{const s=net.connect({host:'127.0.0.1',port});
     s.on('connect',()=>{s.destroy();reject(Error('Test port occupied '+port))});s.on('error',resolve);});
@@ -337,6 +377,7 @@ async function main(){
   fs.writeFileSync(config,original.replace(/(flight|speed|spider|waterwalk|climb|noweb|noslow): OBSERVE/g,'$1: CORRECT')
     .replace('world-replica: false','world-replica: true').replace('  enabled: false','  enabled: true'));
   await marker('nordguard reload',/configuration reloaded/);await proxy.start();
+  if(lowTpsOnly){await lowTpsMatrix();if(failures.length)throw Error(failures.join('; '));return;}
   if(surfaceOnly){await surfaceMatrix();return;}
   if(combatOnly){await combatMatrix(original,config);return;}
   if(boatsOnly){await boatMatrix(original,config);return;}
@@ -457,6 +498,6 @@ async function main(){
   await stopClient();proxy.close();if(server&&!serverExit){server.stdin.write('stop\n');for(let i=0;i<300&&!serverExit;i++)await sleep(100);if(!serverExit){server.kill();failure ||= Error('Server did not stop cleanly')}}
   if(fs.existsSync(root)){
     fs.writeFileSync(path.join(root,'native-server-output.log'),serverOutput);
-    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,descentScenarios,surfaceOnly,descentRegression,hostileDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
+    fs.writeFileSync(path.join(root,'native-results.json'),JSON.stringify({platform,version,pluginSha256,noDelay,ordinaryOnly,ordinaryDuration,extended,profile,downstepOnly,downstepDelays,descentScenarios,surfaceOnly,lowTpsOnly,descentRegression,hostileDelays,combatOnly,combatDelays,boatsOnly,boatHostileOnly,miningOnly,miningDelays,regressionOnly,skipCombat,wurstVersion,wurstSha256,passed,failures,predictionCoverage,measurements,error:failure?.message||null},null,2));
   }
 }if(failure)process.exitCode=1;})();

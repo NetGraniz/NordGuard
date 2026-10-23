@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6 — local elapsed-time movement budgets
+
+- Use the monotonic entity-owner sample interval for horizontal Speed/NoSlow and medium movement allowances, including skipped stationary samples. Preserve bounded burst credit and do not grant a fresh full tick to catch-up calls.
+- Bound compensated intervals with `movement.max-elapsed-ticks` (default 4); longer gaps defer instead of banking unlimited time. Preserve the independent existing max-sample-gap limit and all chosen check modes.
+- Count jump-launch grace in elapsed nominal time, allow bounded grouped takeoff/grounded steps and normalize Spider velocity comparisons over the measured interval. Ordinary slow sampling does not disable Speed, Flight or Spider globally.
+- Add isolated low-TPS native-client/Wurst tests with test-only owner-thread stalls. No stall helper is included in the production JAR. No new production task, world scan, dependency or per-packet work.
+
 ## 0.5.5 — descending ledge contacts
 
 - Keep up to six recently observed server support heights when horizontal motion leaves a ledge before the owner snapshot. Expire candidates in trusted owner time, including silent transport intervals; require nearby descending contact and a matching native takeoff height before restarting Flight's jump history.

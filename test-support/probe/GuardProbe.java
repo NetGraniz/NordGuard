@@ -23,6 +23,8 @@ public final class GuardProbe extends JavaPlugin implements Listener {
     private CombatProbe combat;
     private MiningProbe mining;
     private BoatProbe boats;
+    private io.papermc.paper.threadedregions.scheduler.ScheduledTask lagTask;
+    private long lagLast,lagSum;private int lagSamples;
     @Override public void onEnable() {
         Bukkit.getPluginManager().registerEvents(this, this);
         combat=new CombatProbe(this);Bukkit.getPluginManager().registerEvents(combat,this);
@@ -189,6 +191,24 @@ public final class GuardProbe extends JavaPlugin implements Listener {
                 } else if (action.equals("networkvelocity")) {
                     player.setVelocity(new org.bukkit.util.Vector(.1,.2,0));
                     getLogger().info("GUARD_PACKET_IMPULSE_SENT");
+                } else if(action.equals("lagprofile")) {
+                    if(!player.getName().equals("GuardFixture"))throw new IllegalArgumentException("Fixture account only");
+                    int millis=Integer.parseInt(args[2]);
+                    if(millis!=0&&millis!=65&&millis!=120)throw new IllegalArgumentException("Unsupported fixture stall");
+                    if(lagTask!=null){lagTask.cancel();lagTask=null;}
+                    if(millis==0) {
+                        getLogger().info("GUARD_LAG_STOP samples="+lagSamples+" mean_tick_ms="+(lagSamples==0?0:(double)lagSum/lagSamples/1_000_000));
+                    } else {
+                        lagLast=lagSum=0;lagSamples=0;
+                        long deadline=System.nanoTime()+180_000_000_000L;
+                        lagTask=player.getScheduler().runAtFixedRate(this,lagSample->{
+                            long now=System.nanoTime();
+                            if(now>=deadline){lagSample.cancel();return;}
+                            if(lagLast!=0){lagSum+=now-lagLast;lagSamples++;}lagLast=now;
+                            java.util.concurrent.locks.LockSupport.parkNanos(millis*1_000_000L);
+                        },null,1,1);
+                        getLogger().info("GUARD_LAG_STARTED "+millis);
+                    }
                 } else if (action.equals("stall")) {
                     // Isolated fixture only: exercise a long owner sampling gap without touching production.
                     java.util.concurrent.locks.LockSupport.parkNanos(350_000_000L);

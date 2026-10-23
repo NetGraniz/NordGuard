@@ -495,9 +495,14 @@ public final class NordGuard extends JavaPlugin implements Listener {
             long gap = now - lastNanos; lastNanos = now;
             impulseSpeed *= .91;
             impulseY = Math.max(0, (impulseY - .08) * .98);
-            if (gap > current.maxGapNanos() && gap > 0) suspend(current.transitionGrace());
+            boolean uncertainTiming=MovementTiming.uncertain(gap,current);
+            if (uncertainTiming) suspend(current.transitionGrace());
             if (teleporting || grace-- > 0) { skipped.increment(); return; }
             grace = 0;
+            // Even a zero configured transition grace cannot turn a long stall
+            // into fresh movement evidence or bank time for later movement.
+            if(uncertainTiming){skipped.increment();return;}
+            double elapsedTicks=MovementTiming.ticks(gap,current);
             if (player.isDead() || player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR
                     || player.hasPermission("nordguard.bypass") || player.getAllowFlight() || player.isFlying()
                     || player.isInsideVehicle() || player.isGliding() || player.isRiptiding()
@@ -512,16 +517,16 @@ public final class NordGuard extends JavaPlugin implements Listener {
             boolean stationary = last != null && at.distanceSquared(last) < 1.0E-10;
             // Grounded idle samples must still refresh supported return anchors on the normal cadence.
             if (stationary && airborne && !receivedMovement && pendingFall == 0) {
-                model.transportIdleTick();
+                model.transportIdleTick(elapsedTicks);
                 return;
             }
             // Netty receipt precedes owner-side application. Repeated identical
             // airborne snapshots are not three independent physics advances.
             // Sustained received hover is still sampled on a bounded cadence.
-            if(stationary&&airborne&&pendingFall==0&&++airIdle<current.movement().stationaryAirTicks()){model.transportIdleTick();return;}
+            if(stationary&&airborne&&pendingFall==0&&++airIdle<current.movement().stationaryAirTicks()){model.transportIdleTick(elapsedTicks);return;}
             airIdle=0;
             if (stationary && !airborne && pendingFall == 0 && ++idle % 5 != 0) {
-                model.stationaryTick();
+                model.stationaryTick(elapsedTicks);
                 return;
             }
             var environment = EnvironmentProbe.inspect(player, at);
@@ -581,7 +586,7 @@ public final class NordGuard extends JavaPlugin implements Listener {
             var movementFrame = new MovementModel.Frame(at.getX(), at.getY(), at.getZ(), environment.ground(),
                     environment.wall(), false, speed, jump, attribute(player, Attribute.STEP_HEIGHT, .6),
                     attribute(player, Attribute.GRAVITY, .08), surface, climbing, environment.web(), useMultiplier);
-            var result=model.accept(movementFrame,current,environment.supportY());
+            var result=model.accept(movementFrame,current,environment.supportY(),elapsedTicks);
             boolean phased=false;
             if(current.modes().get(Check.NOCLIP)!=Policy.Mode.OFF && last!=null && environment.clear() && player.getBoundingBox().getHeight()>=1.5
                     && Math.abs(at.getY()-last.getY())<.05 && at.distanceSquared(last)>.64 && at.distanceSquared(last)<16) {

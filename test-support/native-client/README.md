@@ -1,5 +1,14 @@
 # Native Minecraft client tests
 
+`NORD_NATIVE_LOW_TPS_ONLY=1` selects the 0.5.6 timing regression: a clean Fabric
+client walks, sprints and sprint-jumps while a test-only companion stalls its
+owner thread by 65 or 120 ms per tick. It records actual mean owner intervals,
+requires active non-deferred checks and zero new movement violations/corrections.
+The same isolated run then uses actual Wurst SpeedHack, Flight and Spider at the
+120 ms stall profile, requiring each module's evidence and completed corrections.
+The helper expires after 180 seconds and exists only in GuardProbe. This is not
+a 100/600-player capacity test, the full movement matrix or production monitoring.
+
 Windows-only isolated integration fixture for the installed Minecraft 26.2 client, Fabric Loader 0.19.5, Fabric API 0.161.0 and locally supplied Wurst. Requires JDK 25 and a working graphics driver. These tests launch a real game process; they are not a headless capacity benchmark. `NORD_NATIVE_WURST_PATH` selects a specific local archive; result JSON records its version and SHA-256. The 0.5.3 regressions use the supplied 7.56.1 archive.
 
 Build NordGuard and `test-support/build-probe.ps1` first. Then:

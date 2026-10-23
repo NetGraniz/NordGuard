@@ -21,7 +21,8 @@ final class MovementModel {
         Result(EnumSet<Check> flags,double landingDistance,boolean clean){this(flags,landingDistance,clean,false);}
     }
     private Frame last;
-    private int airTicks, groundTicks, jumpAge, descentAge, idleTicks;
+    private int airTicks, groundTicks, descentAge, idleTicks;
+    private double jumpAge, lastElapsedTicks = 1;
     private double lastDy, peakY, speedDebt, jumpMomentum, descentDy, idleSpeedCredit, idleSpeedLimit;
     private double slowDebt, slowCredit, slowLimit;
     private double lastSupportY=Double.NaN;
@@ -41,31 +42,40 @@ final class MovementModel {
         slowDebt=slowCredit=slowLimit=0;flight.reset();
         lastSupportY=Double.NaN;
         supportCount=supportCursor=0;ownerTick=0;
+        lastElapsedTicks=1;
         java.util.Arrays.fill(scores, 0);
     }
 
     /** Account for elapsed owner time without repeating world queries. Credit is burst-bounded. */
     void stationaryTick() {
+        stationaryTick(1);
+    }
+    void stationaryTick(double elapsedTicks) {
+        validElapsed(elapsedTicks);
         ownerTick++;
         if (last == null || !lastGround || last.exempt() || last.medium()) return;
-        jumpAge = Math.min(100, jumpAge + 1);
+        jumpAge = Math.min(100, jumpAge + elapsedTicks);
         jumpMomentum *= .91;
-        idleSpeedTick(last.speed() + jumpMomentum + .02);
-        idleSlowTick();
+        idleSpeedTick((last.speed() + jumpMomentum + .02) * elapsedTicks);
+        idleSlowTick(elapsedTicks);
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
     }
 
     /** No new native movement or TickEnd and no changed owner position: no hover evidence. */
     void transportIdleTick() {
+        transportIdleTick(1);
+    }
+    void transportIdleTick(double elapsedTicks) {
+        validElapsed(elapsedTicks);
         ownerTick++;
         if (last == null || last.exempt() || last.medium()) return;
         idleTicks=Math.min(5,idleTicks+1);
         // This is a trusted owner tick, not a client tick claim. Keep the
         // minimum takeoff interval in elapsed owner time across transport gaps.
-        jumpAge = Math.min(100, jumpAge + 1);
-        idleSpeedTick(last.speed() + jumpMomentum + .02);
-        idleSlowTick();
+        jumpAge = Math.min(100, jumpAge + elapsedTicks);
+        idleSpeedTick((last.speed() + jumpMomentum + .02) * elapsedTicks);
+        idleSlowTick(elapsedTicks);
         int speed = Check.SPEED.ordinal();
         scores[speed] = Math.max(0, scores[speed] - .25);
         // Preserve vertical history until data arrives. Only owner ticks create bounded allowance.
@@ -77,9 +87,9 @@ final class MovementModel {
         idleSpeedCredit = Math.min(idleSpeedLimit, idleSpeedCredit + allowance - repaid);
     }
 
-    private void idleSlowTick() {
+    private void idleSlowTick(double elapsedTicks) {
         if(last==null || !lastGround || last.medium() || last.useMultiplier()>=.99) return;
-        slowAllowance(last.speed()*last.useMultiplier()+.035+jumpMomentum,0);
+        slowAllowance((last.speed()*last.useMultiplier()+.035+jumpMomentum)*elapsedTicks,0);
     }
 
     private void slowAllowance(double allowance,double horizontal) {
@@ -98,6 +108,11 @@ final class MovementModel {
     }
 
     Result accept(Frame next, Policy policy, double supportY) {
+        return accept(next,policy,supportY,1);
+    }
+
+    Result accept(Frame next, Policy policy, double supportY, double elapsedTicks) {
+        validElapsed(elapsedTicks);
         var flags = EnumSet.noneOf(Check.class);
         if (last == null || next.exempt() || last.exempt()) {
             reset(); last = next; lastGround=next.ground();peakY = next.y();lastSupportY=supportY;
@@ -109,7 +124,8 @@ final class MovementModel {
         double dx = next.x() - last.x(), dy = next.y() - last.y(), dz = next.z() - last.z();
         ownerTick++;rememberSupport(supportY);
         double horizontal = Math.hypot(dx, dz);
-        int arrivalTicks=Math.min(policy.movement().coalescedTicks(),Math.max(3,idleTicks+1));idleTicks=0;
+        int arrivalTicks=Math.min(policy.movement().coalescedTicks(),
+                Math.max(Math.max(3,(int)Math.ceil(elapsedTicks)),idleTicks+1));idleTicks=0;
         lastSupportY=supportY;
         if (!Double.isFinite(horizontal) || !Double.isFinite(dy)) {
             reset(); last = next;
@@ -138,7 +154,7 @@ final class MovementModel {
         boolean sweptGround=passiveContact&&passiveSteps==0;
         boolean nextGround=next.ground()||sweptGround;
         groundTicks = nextGround && lastGround ? Math.min(100, groundTicks + 1) : 0;
-        jumpAge = Math.min(100, jumpAge + 1);
+        jumpAge = Math.min(100, jumpAge + elapsedTicks);
         descentAge = Math.min(100, descentAge + 1);
         boolean slowed=groundTicks>=6 && !next.medium() && !last.medium()
                 && next.useMultiplier()<.99 && last.useMultiplier()<.99;
@@ -147,21 +163,21 @@ final class MovementModel {
         } else if(slowed) {
             slowLimit=next.speed()*next.useMultiplier()*policy.burstTicks();
             slowCredit=Math.min(slowCredit,slowLimit);
-            slowAllowance(next.speed()*next.useMultiplier()+.035+jumpMomentum,horizontal);
+            slowAllowance((next.speed()*next.useMultiplier()+.035+jumpMomentum)*elapsedTicks,horizontal);
         } else {
             slowCredit=slowLimit=0;
             // Ending use does not forgive an unpaid excess. Only unused owner
             // allowance repays it; a new use period cannot mint a fresh burst.
-            double spare=Math.max(0,next.speed()+.02-horizontal);
-            slowDebt=Math.max(0,slowDebt-Math.min(.035,spare));
+            double spare=Math.max(0,(next.speed()+.02)*elapsedTicks-horizontal);
+            slowDebt=Math.max(0,slowDebt-Math.min(.035*elapsedTicks,spare));
         }
         score(Check.NOSLOW,slowed && slowDebt>.035,policy,flags);
         score(Check.WATERWALK, next.liquidSurface() && last.liquidSurface()
                 && !next.ground() && Math.abs(dy) <= .12, policy, flags, Math.max(10, policy.buffer()));
-        score(Check.CLIMB, next.climbing() && last.climbing() && dy > .24,
+        score(Check.CLIMB, next.climbing() && last.climbing() && dy > .24 * elapsedTicks,
                 policy, flags, policy.buffer());
         score(Check.NOWEB, next.web() && last.web()
-                && (horizontal > next.speed() * .4 + .03 || Math.abs(dy) > .15),
+                && (horizontal > (next.speed() * .4 + .03)*elapsedTicks || Math.abs(dy) > .15*elapsedTicks),
                 policy, flags, policy.buffer());
         if (next.medium() || last.medium()) {
             score(Check.FLIGHT, false, policy, flags);
@@ -173,7 +189,7 @@ final class MovementModel {
             supportCount=supportCursor=0;
             boolean supportedIdle = nextGround && lastGround && horizontal < .01 && Math.abs(dy) < .01;
             for (double evidence : scores) supportedIdle &= evidence == 0;
-            peakY = next.y(); lastDy = dy; last = next;lastGround=nextGround;
+            peakY = next.y(); lastDy = dy; last = next;lastGround=nextGround;lastElapsedTicks=elapsedTicks;
             return new Result(flags, 0, supportedIdle);
         }
         // Owner snapshots can coalesce the first few native steps of a jump.
@@ -217,7 +233,7 @@ final class MovementModel {
             jumpAge = 0;
             descentAge = 100;
         }
-        double allowed = next.speed() + jumpMomentum + .02;
+        double allowed = (next.speed() + jumpMomentum + .02) * elapsedTicks;
         idleSpeedLimit = next.speed() * policy.burstTicks();
         idleSpeedCredit = Math.min(idleSpeedCredit, idleSpeedLimit);
         if (horizontal < 1.0E-5) idleSpeedTick(allowed);
@@ -233,12 +249,14 @@ final class MovementModel {
         // movement that repays it is not fresh evidence of speeding.
         score(Check.SPEED, horizontal>allowed && speedDebt > next.speed() * policy.burstTicks() + policy.horizontalMargin(), policy, flags);
         if (nextGround) {
-            score(Check.HIGHJUMP, dy > next.step() + policy.verticalMargin(), policy, flags);
+            // A few milliseconds of scheduler jitter must not double the
+            // ordinary one-step allowance at an otherwise healthy 20 TPS.
+            score(Check.HIGHJUMP, dy > next.step()*Math.max(1,Math.ceil(elapsedTicks-.25)) + policy.verticalMargin(), policy, flags);
         } else {
             score(Check.HIGHJUMP, jumpSteps == 0 && dy > next.jump() + policy.verticalMargin(), policy, flags);
         }
         if (!nextGround) airTicks++; else airTicks = 0;
-        double expectedDy = (lastDy - next.gravity()) * 0.98;
+        double expectedDy = (lastDy / Math.max(1,lastElapsedTicks) - next.gravity()) * 0.98;
         int ascentAllowance = (int) Math.ceil(next.jump() / Math.max(.001, next.gravity())) + 6;
         boolean aboveFlight=false;
         if(nextGround || policy.modes().get(Check.FLIGHT)==Policy.Mode.OFF) flight.reset();
@@ -247,7 +265,7 @@ final class MovementModel {
         score(Check.FLIGHT,next.gravity()>.001 && airTicks>Math.max(12,ascentAllowance)
                 && (aboveFlight || airTicks>Math.max(16,ascentAllowance) && dy>-.03),policy,flags);
         score(Check.SPIDER, jumpAge > policy.movement().spiderLaunchTicks() && next.gravity() > .001 && !lastGround && !nextGround && next.wall() && dy > .08
-                && dy > expectedDy + .04 + policy.verticalMargin() * .125,
+                && dy / Math.max(1,elapsedTicks) > expectedDy + .04 + policy.verticalMargin() * .125,
                 policy, flags, Math.min(3, policy.buffer()));
         if (!falling) { peakY = jumpSteps!=0?next.y():Math.max(last.y(), next.y()); falling = !nextGround; }
         else peakY = Math.max(peakY, next.y());
@@ -255,7 +273,7 @@ final class MovementModel {
         if (nextGround) { falling = false; peakY = next.y(); }
         if (dy < -.001) { descentDy = dy; descentAge = 0; }
         else if (dy > .001) descentAge = 100;
-        lastDy = dy; last = next;lastGround=nextGround;
+        lastDy = dy; last = next;lastGround=nextGround;lastElapsedTicks=elapsedTicks;
         boolean clean = true;
         for (int i = 0; i < Check.NOFALL.ordinal(); i++) clean &= scores[i] == 0;
         return new Result(flags, Math.max(landing,inferredDistance), clean && speedDebt < 0.01 && slowDebt < .01,inferredDistance>0||passiveContact);
@@ -270,6 +288,10 @@ final class MovementModel {
             velocity = (velocity - gravity) * .98;
         }
         return 0;
+    }
+
+    private static void validElapsed(double ticks) {
+        if(!Double.isFinite(ticks)||ticks<=0||ticks>6)throw new IllegalArgumentException("Owner interval outside bounds");
     }
 
     private void rememberSupport(double height) {

@@ -72,6 +72,8 @@ actions:
   places-per-second: 20
 # Conservative starting values, not proof of coverage or capacity.
 movement:
+  # Real owner-thread time / 50 ms; longer stalls defer movement instead of minting unlimited credit.
+  max-elapsed-ticks: 4
   # Owner ticks only; client packet counts never increase this allowance.
   max-coalesced-ticks: 6
   # 1..3 owner ticks; repeated identical air snapshots need no full terrain scan each tick.
