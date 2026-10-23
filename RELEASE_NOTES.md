@@ -1,3 +1,35 @@
+# NordGuard 0.5.5
+
+Minecraft 26.2 on Paper and Folia; Java 25 required.
+
+Fix false Flight corrections during diagonal downhill sprint-jumps over one/two-block
+steps. A bounded history of server-observed support distinguishes missed contacts
+from continued flight without a wall exemption or a global threshold increase.
+Validated descending contacts split fall segments without erasing prior fall debt.
+
+After a server velocity event, NoFall defers a new uncertain fall segment until
+supported contact is established. Client ground flags alone cannot restore trust.
+This avoids false corrections after impulses but leaves that uncertain segment
+outside NoFall enforcement; it is not a complete knockback physics simulator.
+
+No configuration keys or defaults change. No new world scan, repeating task or
+dependency is added. Existing configuration and player data stay in place.
+
+Verification: 359 Java tests, eight Node tests, 104 Paper runtime checks and 14
+native Folia checks passed. The exact release JAR completed three honest diagonal
+descent routes with 300 ms added delay per direction and ordered jitter without
+violations or corrections. Actual Wurst Flight, SpeedHack, Spider and Jesus still
+received corrections at zero added delay. See TESTING.md for scope and limitations;
+these tests do not establish 600-player capacity.
+
+Stop the server before replacing the old NordGuard JAR. Keep the existing
+`plugins/NordGuard` directory and do not leave duplicate NordGuard JARs in `plugins`.
+
+Archive: 218,330 bytes. SHA-256:
+`77bc2b6c782d7868adfbd7d9eade92efccf4f55ba2cc1e7fb6cd5fe8cee8274d`.
+
+---
+
 # NordGuard 0.5.3
 
 Minecraft 26.2 on Paper and Folia; Java 25 required.

@@ -1,5 +1,47 @@
 # Test record
 
+## 0.5.5 — diagonal descent correction, 2026-10-23
+
+Release archive: 218,330 bytes, SHA-256
+`77bc2b6c782d7868adfbd7d9eade92efccf4f55ba2cc1e7fb6cd5fe8cee8274d`.
+Source commit `a6affd7` passed GitHub build run `39861014082`.
+Maven verify passed 359 Java tests with no failures; eight Node tests passed.
+
+- `nordguard-test-20261023-055-paper-final-r1`: 104 runtime checks passed
+  on this exact archive. These include ordinary fall damage, injected fall-distance
+  suppression, geometry-based support, correction recovery, action gates,
+  configuration reload and lifecycle cleanup. New checks verify that server
+  impulses defer an uncertain NoFall origin, spoofed client ground flags cannot
+  restore trust, and geometrical landing restores normal checks. Synthetic snow
+  and water corrections work without a land anchor; ordinary surface controls
+  remain unflagged.
+- `nordguard-test-20261023-055-folia-final-r4`: 14 checks passed on the
+  same archive. A real Minecraft 26.2 Fabric client without Wurst completed three
+  downhill sprint-jump routes after twelve seconds of warmup: 45-degree alternating
+  one/two-block steps, 45-degree two-block steps, and 15-degree alternating steps.
+  Each used 300 ms added delay per direction with ordered jitter. The client
+  verified every edited terrain block before movement. All three routes had zero
+  movement violations and zero corrections. Angles describe the heading relative
+  to the block grid, not the slope inclination.
+  A separate real Wurst 7.56.1 client received detection and completed corrections
+  for Flight, SpeedHack, Spider and Jesus at zero added delay. Two disable/enable
+  cycles restored sessions and native acknowledgements. No internal or region
+  ownership errors occurred.
+
+NoFall deliberately defers a new uncertain fall segment after a server velocity
+event until supported contact is established. Client ground flags alone cannot
+end this deferral. This is a coverage tradeoff, not a complete knockback simulator;
+Flight and Speed resume after the existing impulse grace.
+
+This final archive was not run through the full 0/100/300 ms route matrix or a
+new native SnowShoe control. Earlier development failures remain in CANDIDATE.md.
+These checks do not establish 600-player capacity. The change adds bounded support
+history, not new world scans or repeating tasks, and leaves configuration defaults
+unchanged.
+
+Hash-verified reports and logs from the final and development runs are retained
+privately in `Minecraft Backups/NordGuard-0.5.5-validation-20261023`.
+
 ## 0.5.4 — reported diagonal descent false positive, 2026-10-23
 
 The unchanged published archive (SHA-256
