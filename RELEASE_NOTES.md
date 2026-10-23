@@ -1,3 +1,41 @@
+# NordGuard 0.5.6
+
+Minecraft 26.2 on Paper and Folia; Java 25 required.
+
+Fix false Speed evidence when the player's region runs below 20 TPS. Movement
+budgets now account for monotonic time between owner samples: a 125 ms interval
+receives 2.5 nominal ticks, not one. Catch-up calls receive only their elapsed
+fraction. Idle credit remains burst-bounded; packets cannot mint time.
+
+NoSlow and medium displacement checks use the same timing. Jump grace and bounded
+grouped steps account for slow sampling without doubling the normal step allowance
+for minor healthy-tick jitter. Speed, Flight and Spider are not globally disabled.
+
+New setting: `movement.max-elapsed-ticks: 4` (range 2–6). Larger intervals, or gaps
+beyond the independent `max-sample-gap-ms`, defer history rather than banking an
+unlimited allowance. Keep `movement.max-sample-gap-ms: 250` for low-TPS testing;
+100 ms is an interruption threshold, not compensation. Existing explicit values
+and modes remain unchanged. Startup adds missing keys through the existing
+validated, backed-up configuration migration; reload does not write the file.
+
+No new production task, world scan, dependency or external service. The test-only
+owner stall helper is not included in the plugin. These are bounded movement
+envelopes, not complete physics or a capacity guarantee for 100/600 players.
+
+Local Maven verification: 371 Java tests passed; eight Node tests passed. GitHub
+CI for source `f912e0d` passed: run `40007891647`. Native runtime verification is
+recorded in TESTING.md; use that record for exact scope and archive identity.
+The final archive passed six clean-client movement cases at roughly 14/8 TPS;
+actual Wurst SpeedHack, Flight and Spider received corrections at roughly 8 TPS.
+
+Stop the server before replacing the old NordGuard JAR. Keep the existing
+`plugins/NordGuard` directory. Do not leave duplicate NordGuard JARs in `plugins`.
+
+Archive: 219,842 bytes. SHA-256:
+`d8a7cb2533f4742153f3efd9f1fd1619e98e5006abf74feade4897cb4dbaf314`.
+
+---
+
 # NordGuard 0.5.5
 
 Minecraft 26.2 on Paper and Folia; Java 25 required.

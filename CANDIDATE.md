@@ -1,5 +1,17 @@
 # Development record
 
+## 0.5.6 timing test development
+
+- The first low-TPS native run stopped at a harness assertion: `marker()` returns
+  output text, not regex captures. The runner interpreted a string character as
+  the measured interval. The server log actually recorded 70.25 ms owner ticks.
+  This run is not counted as a passing runtime matrix.
+- Candidate `8711fdf496acdeb4e9c22ff99cb923788a4c52f66c2c60b2367aef3f33cdeb84`
+  then passed six native ordinary and three Wurst low-TPS cases. A subsequent
+  review tightened the healthy-tick HighJump step rounding so a 51 ms interval
+  cannot double a one-step allowance. The final archive has a different hash;
+  only its own recorded rerun is release evidence.
+
 ## 0.5.5 retained failures
 
 - Candidate `ad009e97b3ab1c90b5bcee7c58332c9fafeea12b67ff2dd928d4e44ca40f6a4d`

@@ -1,5 +1,42 @@
 # Test record
 
+## 0.5.6 — owner-time movement compensation, 2026-10-23
+
+Release candidate archive: 219,842 bytes, SHA-256
+`d8a7cb2533f4742153f3efd9f1fd1619e98e5006abf74feade4897cb4dbaf314`.
+Source `f912e0d` passed GitHub build run `40007891647`. Local Maven verify passed
+371 Java tests; eight Node tests passed. The new tests include a control that
+reproduces the old one-owner-call speed budget false positive, legitimate and
+excessive speed at varying intervals, burst limits, NoSlow, jump/wall movement,
+healthy-tick step jitter, configuration bounds and untrusted timing admission.
+
+`nordguard-test-20261023-056-lowtps-folia-final-r3` passed all 12 checks on this
+exact archive with no recorded errors/failures. Six ordinary native cases cover
+walk, sprint and repeated sprint-jumps using a clean Minecraft 26.2 Fabric client.
+Mean measured owner intervals were 69.5–70.8 ms and 123.0–124.0 ms (roughly
+14 and 8 TPS). All cases required movement, more than 20 active non-deferred
+samples and no new Speed/Flight/Spider/HighJump/NoSlow/NoFall evidence or completed
+corrections. Each input case lasted ten seconds plus its idle settling period.
+
+The same fresh fixture then loaded the locally supplied Wurst 7.56.1 archive.
+Actual SpeedHack, Flight and Spider each increased their own evidence counter
+and completed NordGuard corrections with mean owner intervals 122.8–123.9 ms.
+Only module enablement or a vanilla server teleport cannot satisfy these checks.
+The archive hash is recorded independently in the local native-results JSON.
+
+The test-only companion intentionally stalls its fixture's owner thread. This
+is not 100/600 real players, a real-world overload profile, arbitrary latency
+compensation, a complete hostile-module search or a full Paper/Folia acceptance
+matrix. It does not establish production capacity or zero false positives under
+all movement/plugin interactions. The prior full matrices remain historical
+evidence for their own archives, not proof that they were all rerun for 0.5.6.
+Only loopback fixtures, executable runtime seeds and synthetic player/world data
+were used. No production configuration, world or plugin was changed for tests.
+
+`nordguard-test-20261023-056-folia-smoke` also passed release startup, a real
+Mineflayer connection, ordinary walking, native Ping/Pong, configuration reload,
+default-mode and clean-shutdown checks on the same archive.
+
 ## 0.5.5 — diagonal descent correction, 2026-10-23
 
 Release archive: 218,330 bytes, SHA-256
